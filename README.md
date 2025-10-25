@@ -123,7 +123,3 @@ Model evaluation, ablation studies, and documentation generation.
 ## Development
 
 Use Jupyter notebooks in `notebooks/` for prototyping and exploration.
-
-## License
-
-MIT
