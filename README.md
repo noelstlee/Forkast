@@ -47,29 +47,75 @@ Place the raw data files in `data/raw/`:
 
 ### Phase A: Data Processing
 
+#### Option 1: Consolidated Pipelines (Recommended)
+
+**All-in-One (XGBoost + LSTM + Cleanup)**:
+```bash
+python preprocess_all.py              # With cleanup prompt
+python preprocess_all.py --cleanup    # Auto cleanup
+python preprocess_all.py --no-cleanup # Skip cleanup
+```
+Runs complete pipeline: A1 → A2 → A2.5 → A3 → A4 → A5 + cleanup (~98 minutes)
+
+Output: Both `xgboost_data/` and `lstm_data/` ready for training
+
+**Individual Model Pipelines**:
+
+For XGBoost only:
+```bash
+python preprocess_xgboost.py
+```
+Runs: A1 → A2 → A2.5 → A3 → A4 (~83 minutes)
+
+For LSTM only:
+```bash
+python preprocess_lstm.py
+```
+Runs: A1 → A2 → A2.5 → A4 → A5 (~50 minutes)
+
+**Cleanup Only**:
+```bash
+python cleanup_intermediate_files.py
+```
+Removes intermediate files (~1.82 GB freed)
+
+#### Option 2: Individual Phase Scripts
+
 **A1. Data Ingestion & Normalization**
 ```bash
 python src/data/ingest.py
 ```
-Or use the notebook: `notebooks/01_data_ingestion.ipynb`
-
-Converts raw JSON to cleaned Parquet format with:
-- Timestamp normalization
-- Category mapping (~25 families)
-- Geographic filtering (Georgia bounds)
-- Deduplication
+Converts raw JSON to cleaned Parquet format
 
 **A2. User Sequence Derivation**
 ```bash
 python src/data/sequences.py
 ```
-Creates user visit sequences and consecutive pairs.
+Creates user visit sequences and consecutive pairs
+
+**A2.5. Data Quality Filtering**
+```bash
+python src/data/filter_quality.py
+```
+Improves data quality (re-categorization, filtering)
 
 **A3. Feature Engineering**
 ```bash
 python src/data/features.py
 ```
-Generates spatial, semantic, popularity, quality, price, and temporal features with hybrid negative sampling.
+Generates 47 features with hybrid negative sampling
+
+**A4. Temporal Data Splitting**
+```bash
+python src/data/split_data.py
+```
+Splits data chronologically (70/15/15)
+
+**A5. LSTM-Specific Preprocessing**
+```bash
+python src/data/lstm_preprocessing.py
+```
+Prepares LSTM data (vocabulary, windowing, padding)
 
 ### Phase B: Model Training
 
@@ -119,6 +165,10 @@ Model evaluation, ablation studies, and documentation generation.
 - Python 3.12+
 - 16GB+ RAM recommended for full pipeline
 - GPU recommended for LSTM training (optional, CPU works)
+
+## Documentation
+
+- **[DATA_PREPROCESSING_DOCUMENTATION.md](DATA_PREPROCESSING_DOCUMENTATION.md)**: Comprehensive guide to all preprocessing phases, design decisions, intermediate results, and data lineage (1,230 lines)
 
 ## Development
 
