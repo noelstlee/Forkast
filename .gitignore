@@ -25,6 +25,7 @@ ENV/
 data/raw/meta-Georgia.json
 data/raw/review-Georgia.json
 data/processed/
+data/mock/
 team15proposal.pdf
 *.log
 .DS_Store
