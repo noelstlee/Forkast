@@ -15,7 +15,7 @@ from utils.category_mapping import normalize_category_list, get_primary_food_cat
 GA_LAT_MIN, GA_LAT_MAX = 30.0, 35.0
 GA_LON_MIN, GA_LON_MAX = -85.6, -80.8
 
-# Valid timestamp range (year 2000 onwards, not in future)
+# Valid timestamp range (year 2000 onwards)
 MIN_TIMESTAMP = datetime(2000, 1, 1).timestamp() * 1000  # Convert to milliseconds
 MAX_TIMESTAMP = datetime.now().timestamp() * 1000
 
