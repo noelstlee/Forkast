@@ -152,6 +152,29 @@ Launches interactive Dash dashboard with:
 
 Model evaluation, ablation studies, and documentation generation.
 
+## Mock Data for Visualization Team
+
+Generate realistic mock data for parallel development while model training is in progress:
+
+```bash
+python generate_mock_data.py --size 1000 --businesses 100
+```
+
+**Output** (`data/mock/`):
+- `businesses.parquet`: Business metadata (100 Atlanta restaurants)
+- `flows.parquet`: User visit flows (1,000 consecutive visits)
+- `xgboost_predictions.parquet`: XGBoost top-10 predictions (10,000 rows)
+- `lstm_predictions.parquet`: LSTM category/business predictions (15,000 rows)
+- `README.md`: Complete documentation and usage examples
+- `*_sample.json`: JSON samples for easy inspection
+
+**Features**:
+- Realistic Atlanta locations (33.6-34.0°N, -84.6 to -84.2°W)
+- Actual restaurant names (The Varsity, Mary Mac's, Fox Bros., etc.)
+- Proper data structure matching real model outputs
+- Configurable size for different testing needs
+- ~0.32 MB total (lightweight for development)
+
 ## Key Features
 
 - **Memory-efficient processing**: Uses Polars for streaming 7GB+ datasets
