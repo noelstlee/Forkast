@@ -391,13 +391,20 @@ def filter_sequences_only():
     print(f"  Businesses: {len(biz_df):,}")
     print(f"  Sequences: {len(sequences_df):,} visits from {sequences_df['user_id'].n_unique():,} users")
     
-    # Step 1: Re-categorize 'restaurant' businesses (updates biz_df in place)
-    biz_df = recategorize_restaurant_businesses(biz_df, str(biz_input))
+    # Step 1: Re-categorize 'restaurant' businesses
+    biz_df = recategorize_restaurants(biz_df)
+    
+    # Update business data (overwrite original)
+    print(f"\nSaving updated business data to {biz_input}...")
+    biz_df.write_parquet(biz_input, compression="snappy")
+    print(f"  Output size: {Path(biz_input).stat().st_size / 1024 / 1024:.1f} MB")
     
     # Step 2: Filter sequences by minimum visit count
-    sequences_filtered = filter_sequences_by_min_visits(sequences_df, str(sequences_output), min_visits=5)
+    sequences_filtered = filter_sequences_by_length(sequences_df, min_visits=5)
     
-    print(f"\n✓ Filtered sequences saved to: {sequences_output}")
+    # Save filtered sequences
+    print(f"\nSaving filtered sequences to {sequences_output}...")
+    sequences_filtered.write_parquet(sequences_output, compression="snappy")
     print(f"  Output size: {Path(sequences_output).stat().st_size / 1024 / 1024:.1f} MB")
     
     # Print final statistics (sequences only)
