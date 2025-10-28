@@ -19,3 +19,5 @@ plotly>=5.17.0          # Core plotting engine
 jupyterlab>=4.0.0       # For prototyping, EDA, and model development notebooks
 tqdm>=4.66.0            # For progress bars during long-running tasks
 python-dotenv>=1.0.0    # For environment variable management
+matplotlib>=3.8.0       # For plotting
+seaborn>=0.13.0        # For enhanced plotting
