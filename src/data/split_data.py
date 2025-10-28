@@ -336,6 +336,9 @@ def split_xgboost_only():
 def split_lstm_only():
     """Split only LSTM data (for consolidated pipeline)."""
     print("\n[Loading data...]")
+    PROCESSED_DIR = Path(__file__).parent.parent.parent / "data" / "processed" / "ga"
+    LSTM_DIR = PROCESSED_DIR / "lstm_data"
+
     lstm_sequences_df = pl.read_parquet(PROCESSED_DIR / "user_sequences_filtered_ga.parquet")
     biz_df = pl.read_parquet(PROCESSED_DIR / "biz_ga.parquet")
     
@@ -346,7 +349,7 @@ def split_lstm_only():
     
     # Split LSTM data
     print("\n[Splitting LSTM data...]")
-    lstm_train, lstm_val, lstm_test = split_lstm_data(lstm_sequences_df)
+    lstm_train, lstm_val, lstm_test = temporal_split_lstm(lstm_sequences_df, train_ratio=.70, val_ratio=.15)
     
     # Save LSTM splits
     print("\n[Saving LSTM splits...]")
