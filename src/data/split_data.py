@@ -305,6 +305,9 @@ def main():
 
 def split_xgboost_only():
     """Split only XGBoost data (for consolidated pipeline)."""
+    PROCESSED_DIR = Path(__file__).parent.parent.parent / "data" / "processed" / "ga"
+    XGBOOST_DIR = PROCESSED_DIR / "xgboost_data"
+
     print("\n[Loading data...]")
     xgboost_df = pl.read_parquet(PROCESSED_DIR / "features_ga.parquet")
     biz_df = pl.read_parquet(PROCESSED_DIR / "biz_ga.parquet")
@@ -316,7 +319,7 @@ def split_xgboost_only():
     
     # Split XGBoost data
     print("\n[Splitting XGBoost data...]")
-    xgboost_train, xgboost_val, xgboost_test = split_xgboost_data(xgboost_df)
+    xgboost_train, xgboost_val, xgboost_test = temporal_split_xgboost(xgboost_df, train_ratio=0.70, val_ratio=0.15)
     
     # Save XGBoost splits
     print("\n[Saving XGBoost splits...]")
