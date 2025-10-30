@@ -13,13 +13,16 @@ Forkast/
 │   │   └── atl/                # Atlanta subset for visualization
 ├── src/
 │   ├── data/                   # Data processing pipeline
-│   ├── models/                 # Model training (XGBoost, LSTM)
-│   ├── viz/                    # Dash dashboard
+│   ├── models/
+|       |---xgboost_ranker.py          # Model training (XGBoost, LSTM)
+│   ├── viz/
+|      |--app.py                    # Dash dashboard
 │   └── utils/                  # Utilities (geo, metrics, category mapping)
 ├── notebooks/                  # Jupyter notebooks for development
 ├── models/                     # Trained model artifacts
 ├── outputs/                    # Predictions for visualization
-└── dashboard/                  # Static assets for Dash
+└── dashboard/
+|---filter_atlanta.py                  # Static assets for Dash
 ```
 
 ## Setup
@@ -124,6 +127,8 @@ Prepares LSTM data (vocabulary, windowing, padding)
 python src/models/xgboost_ranker.py
 ```
 Trains business-level ranking model with Recall@K, MRR, nDCG evaluation.
+Filter the Atlanta area
+Plot
 
 **B2. LSTM Sequential Prediction**
 ```bash
