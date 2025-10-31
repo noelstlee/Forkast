@@ -28,21 +28,12 @@ data/processed/ga/*.parquet
 data/processed/ga/xgboost_data/
 data/mock/
 
-# LSTM data - only keep files needed for training (118 MB vs 374 MB)
-data/processed/ga/lstm_data/
-
-# Keep windowed training data (needed for notebooks)
-!data/processed/ga/lstm_data/business_train.parquet
-!data/processed/ga/lstm_data/business_val.parquet
-!data/processed/ga/lstm_data/business_test.parquet
-!data/processed/ga/lstm_data/category_train.parquet
-!data/processed/ga/lstm_data/category_val.parquet
-!data/processed/ga/lstm_data/category_test.parquet
-
-# Keep vocabularies and weights (needed for notebooks)
-!data/processed/ga/lstm_data/business_vocab.json
-!data/processed/ga/lstm_data/category_vocab.json
-!data/processed/ga/lstm_data/category_class_weights.json
+# LSTM data - ignore intermediate files, keep only training files (118 MB vs 374 MB)
+data/processed/ga/lstm_data/train.parquet
+data/processed/ga/lstm_data/val.parquet
+data/processed/ga/lstm_data/test.parquet
+data/processed/ga/lstm_data/atlanta_business_ids.json
+data/processed/ga/lstm_data/biz_ga.parquet
 team15proposal.pdf
 *.log
 .DS_Store
