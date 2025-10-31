@@ -7,7 +7,7 @@ haversine>=2.8.0        # For calculating geographic distances (Phase A3)
 # --- Machine Learning & Evaluation ---
 scikit-learn>=1.3.0     # For preprocessing, splitting, and evaluation metrics (Recall@k, MRR, nDCG)
 xgboost>=2.0.0          # For the B1 Baseline Ranking (XGBoost) model
-torch>=2.0.0            # For the B2 Sequential (LSTM) model
+torch>=2.0.0            # For the B2 Sequential (LSTM) model - GPU support via CUDA
 torchtext>=0.15.0       # For text/sequence utilities in LSTM
 
 # --- Visualization Dashboard ---
