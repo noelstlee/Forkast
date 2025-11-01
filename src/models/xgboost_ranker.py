@@ -414,6 +414,28 @@ def evaluate_ranking(predictions_df: pl.DataFrame, k_values: List[int] = [1, 5, 
     queries = predictions_df.group_by('query_id')
 
     print(f"\nEvaluating {len(predictions_df['query_id'].unique()):,} queries...")
+    
+    # Diagnostic information
+    print(f"\nDiagnostic Information:")
+    total_predictions = len(predictions_df)
+    positive_predictions = (predictions_df['label'] == 1).sum()
+    negative_predictions = (predictions_df['label'] == 0).sum()
+    print(f"  Total predictions: {total_predictions:,}")
+    print(f"  Positive labels: {positive_predictions:,}")
+    print(f"  Negative labels: {negative_predictions:,}")
+    print(f"  Positive ratio: {positive_predictions/total_predictions:.4f}")
+    
+    # Check if we have realistic ranking scenario
+    queries_with_positives = predictions_df.filter(pl.col('label') == 1)['query_id'].n_unique()
+    total_queries = predictions_df['query_id'].n_unique()
+    print(f"  Queries with positive examples: {queries_with_positives:,}/{total_queries:,}")
+    
+    if positive_predictions == 0:
+        print("  ⚠️  WARNING: No positive labels found! Check data preparation.")
+        return {}
+    
+    if queries_with_positives == total_queries:
+        print("  ⚠️  WARNING: Every query has exactly one positive - this may indicate data leakage!")
 
     # Recall@K
     print(f"\n[1/3] Calculating Recall@K...")

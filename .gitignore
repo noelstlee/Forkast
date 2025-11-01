@@ -22,14 +22,13 @@ ENV/
 *~
 .DS_Store
 
-# Ignore all processed data files (they're too large for git and should be regenerated)
-data/processed/ga/*.parquet
-data/processed/ga/**/*.parquet
-data/processed/ga/user_sequences*.parquet
-data/processed/ga/pairs*.parquet
-data/processed/ga/features_ga.parquet
-data/processed/ga/biz_ga.parquet
-data/processed/ga/reviews_ga.parquet
+# Don't ignore parquet files - Git LFS will handle them
+# data/processed/ga/*.parquet
+# data/processed/ga/**/*.parquet
+
+# But still ignore raw data (too large even for LFS)
+data/raw/*.json.gz
+
 team15proposal.pdf
 *.log
 .DS_Store

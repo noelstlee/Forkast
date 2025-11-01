@@ -1137,12 +1137,14 @@ def add_all_features(pairs_df: pl.DataFrame, biz_df: pl.DataFrame, reviews_df: p
 def generate_negative_samples(pairs_df: pl.DataFrame, biz_df: pl.DataFrame,
                               n_negatives: int = 4, random_seed: int = 42) -> pl.DataFrame:
     """
-    Generate negative samples using hybrid sampling strategy.
+    Generate negative samples using hybrid sampling strategy with realistic timestamps.
     
     Strategy:
     - 50% random geographic (within 10km of source)
     - 30% from relative_results
     - 20% same category, different location
+    
+    Key Fix: Generate realistic timestamps for negatives to prevent data leakage
     
     Args:
         pairs_df: Positive pairs DataFrame
@@ -1247,16 +1249,31 @@ def generate_negative_samples(pairs_df: pl.DataFrame, biz_df: pl.DataFrame,
                 sampled_cat = random.sample(available_cat, n_sample)
                 sampled_negatives.update(sampled_cat)
         
-        # Create negative pair entries
+        # Create negative pair entries with realistic timestamps
         for neg_id in sampled_negatives:
             neg_info = biz_dict[neg_id]
+            
+            # Generate realistic time gap (0.2 to 168 hours like positive samples)
+            realistic_delta_hours = random.uniform(0.2, 168.0)
+            
+            # Calculate realistic destination timestamp
+            src_ts = row['src_ts']
+            if isinstance(src_ts, str):
+                from datetime import datetime, timedelta
+                src_datetime = datetime.fromisoformat(src_ts.replace('Z', '+00:00'))
+            else:
+                src_datetime = src_ts
+            
+            # Add realistic time delta
+            dst_datetime = src_datetime + timedelta(hours=realistic_delta_hours)
+            
             negative_samples.append({
                 'user_id': row['user_id'],
                 'src_gmap_id': src_id,
                 'dst_gmap_id': neg_id,
                 'src_ts': row['src_ts'],
-                'dst_ts': row['dst_ts'],  # Keep same timestamp
-                'delta_hours': row['delta_hours'],
+                'dst_ts': dst_datetime,  # Realistic timestamp
+                'delta_hours': realistic_delta_hours,  # Realistic time gap
                 'src_category_main': row['src_category_main'],
                 'dst_category_main': neg_info['category'],
                 'src_lat': row['src_lat'],
