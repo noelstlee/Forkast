@@ -10,6 +10,7 @@ import numpy as np
 from pathlib import Path
 from haversine import haversine, Unit
 from typing import List, Tuple
+from datetime import datetime, timedelta
 import random
 import sys
 
@@ -1258,13 +1259,22 @@ def generate_negative_samples(pairs_df: pl.DataFrame, biz_df: pl.DataFrame,
             
             # Calculate realistic destination timestamp
             src_ts = row['src_ts']
+            
+            # Handle different timestamp formats
+            # Polars datetime objects can be added to timedelta directly
             if isinstance(src_ts, str):
-                from datetime import datetime, timedelta
-                src_datetime = datetime.fromisoformat(src_ts.replace('Z', '+00:00'))
+                # Parse string timestamp
+                try:
+                    src_datetime = datetime.fromisoformat(src_ts.replace('Z', '+00:00'))
+                except:
+                    # Fallback: use a default datetime
+                    src_datetime = datetime(2020, 1, 1)
             else:
+                # Already a datetime-like object (Polars datetime or Python datetime)
                 src_datetime = src_ts
             
             # Add realistic time delta
+            # Works for both Python datetime and Polars datetime objects
             dst_datetime = src_datetime + timedelta(hours=realistic_delta_hours)
             
             negative_samples.append({

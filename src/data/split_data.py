@@ -305,26 +305,28 @@ def save_lstm_splits(train_df: pl.DataFrame, val_df: pl.DataFrame,
     print(f"\n✓ LSTM splits saved to {output_dir}")
 
 
-def copy_business_data(source_path: Path, xgb_dir: Path, lstm_dir: Path):
-    """Copy business metadata to both directories."""
+def copy_business_data(source_path: Path, xgb_dir: Path, lstm_dir: Path = None):
+    """Copy business metadata to directories."""
     print("\n" + "=" * 80)
     print("COPYING BUSINESS METADATA")
     print("=" * 80)
     
     xgb_biz_path = xgb_dir / "biz_ga.parquet"
-    lstm_biz_path = lstm_dir / "biz_ga.parquet"
     
-    print(f"\n[1/2] Copying to xgboost_data/...")
+    print(f"\n[1/{2 if lstm_dir else 1}] Copying to xgboost_data/...")
     shutil.copy2(source_path, xgb_biz_path)
     print(f"  {xgb_biz_path}")
     print(f"  Size: {xgb_biz_path.stat().st_size / 1024 / 1024:.1f} MB")
     
-    print(f"\n[2/2] Copying to lstm_data/...")
-    shutil.copy2(source_path, lstm_biz_path)
-    print(f"  {lstm_biz_path}")
-    print(f"  Size: {lstm_biz_path.stat().st_size / 1024 / 1024:.1f} MB")
-    
-    print(f"\n✓ Business metadata copied to both directories")
+    if lstm_dir is not None:
+        lstm_biz_path = lstm_dir / "biz_ga.parquet"
+        print(f"\n[2/2] Copying to lstm_data/...")
+        shutil.copy2(source_path, lstm_biz_path)
+        print(f"  {lstm_biz_path}")
+        print(f"  Size: {lstm_biz_path.stat().st_size / 1024 / 1024:.1f} MB")
+        print(f"\n✓ Business metadata copied to both directories")
+    else:
+        print(f"\n✓ Business metadata copied to xgboost_data/")
 
 
 def print_final_summary(xgb_dir: Path, lstm_dir: Path):
