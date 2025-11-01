@@ -536,8 +536,20 @@ def main():
     raw_dir = base_dir / "data" / "raw"
     output_dir = base_dir / "data" / "processed" / "ga"
     
-    reviews_input = raw_dir / "review-Georgia.json"
-    metadata_input = raw_dir / "meta-Georgia.json"
+    # Check for both compressed and uncompressed versions
+    if (raw_dir / "review-Georgia.json.gz").exists():
+        reviews_input = raw_dir / "review-Georgia.json.gz"
+    elif (raw_dir / "review-Georgia.json").exists():
+        reviews_input = raw_dir / "review-Georgia.json"
+    else:
+        reviews_input = raw_dir / "review-Georgia.json.gz"  # Default
+    
+    if (raw_dir / "meta-Georgia.json.gz").exists():
+        metadata_input = raw_dir / "meta-Georgia.json.gz"
+    elif (raw_dir / "meta-Georgia.json").exists():
+        metadata_input = raw_dir / "meta-Georgia.json"
+    else:
+        metadata_input = raw_dir / "meta-Georgia.json.gz"  # Default
     
     reviews_output = output_dir / "reviews_ga.parquet"
     metadata_output = output_dir / "biz_ga.parquet"
