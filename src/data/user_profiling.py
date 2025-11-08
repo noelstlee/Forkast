@@ -6,10 +6,16 @@ Creates user-level features for personalization.
 import polars as pl
 import numpy as np
 from typing import Dict, List, Optional
+from pathlib import Path
 from datetime import datetime, timedelta
 
 
-def create_user_profiles(reviews_df: pl.DataFrame, biz_df: pl.DataFrame) -> pl.DataFrame:
+def create_user_profiles(
+    reviews_df: pl.DataFrame,
+    biz_df: pl.DataFrame,
+    cache_path: Optional[Path] = None,
+    force_refresh: bool = False
+) -> pl.DataFrame:
     """
     Generate comprehensive user behavioral profiles.
     
@@ -20,6 +26,20 @@ def create_user_profiles(reviews_df: pl.DataFrame, biz_df: pl.DataFrame) -> pl.D
     Returns:
         DataFrame with user-level features
     """
+    cache_file: Optional[Path] = Path(cache_path) if cache_path else None
+
+    if (
+        cache_file is not None
+        and not force_refresh
+        and cache_file.exists()
+    ):
+        print("\n" + "=" * 60)
+        print("USER PROFILING (cached)")
+        print("=" * 60)
+        user_profiles = pl.read_parquet(cache_file)
+        print(f"  ✓ Loaded cached user profiles ({len(user_profiles):,} users)")
+        return user_profiles
+
     print("\n" + "=" * 60)
     print("USER PROFILING")
     print("=" * 60)
@@ -196,6 +216,11 @@ def create_user_profiles(reviews_df: pl.DataFrame, biz_df: pl.DataFrame) -> pl.D
         "user_visit_frequency_bucket"
     ])
     
+    if cache_file is not None:
+        cache_file.parent.mkdir(parents=True, exist_ok=True)
+        user_profiles.write_parquet(cache_file)
+        print(f"  ✓ Cached user profiles ({cache_file})")
+
     print(f"\n✓ User profiling complete!")
     print(f"  Processed {len(user_profiles):,} users")
     print(f"  Features per user: {len(user_profiles.columns) - 1}")

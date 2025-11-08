@@ -29,6 +29,9 @@ ENV/
 # But still ignore raw data (too large even for LFS)
 data/raw/*.json.gz
 
+# Cache artifacts
+data/processed/ga/cache/
+
 team15proposal.pdf
 *.log
 .DS_Store

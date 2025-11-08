@@ -9,7 +9,7 @@ import polars as pl
 import numpy as np
 from pathlib import Path
 from haversine import haversine, Unit
-from typing import List, Tuple
+from typing import List, Tuple, Optional, Dict
 from datetime import datetime, timedelta
 import random
 import sys
@@ -377,7 +377,14 @@ def add_relationship_features(pairs_df: pl.DataFrame, biz_df: pl.DataFrame) -> p
     return pairs_df
 
 
-def add_review_sentiment_features(pairs_df: pl.DataFrame, reviews_df: pl.DataFrame) -> pl.DataFrame:
+def add_review_sentiment_features(
+    pairs_df: pl.DataFrame,
+    reviews_df: Optional[pl.DataFrame] = None,
+    *,
+    sentiment_df: Optional[pl.DataFrame] = None,
+    review_cache_path: Optional[Path] = None,
+    force_refresh: bool = False
+) -> pl.DataFrame:
     """
     Add review sentiment features to pairs dataframe.
     
@@ -399,8 +406,15 @@ def add_review_sentiment_features(pairs_df: pl.DataFrame, reviews_df: pl.DataFra
     print("\n[8/14] Adding review sentiment features...")
     
     # Get restaurant sentiment analysis
-    review_analysis_results = analyze_reviews(reviews_df)
-    sentiment_df = review_analysis_results['sentiment']
+    if sentiment_df is None:
+        if reviews_df is None:
+            raise ValueError("Either sentiment_df or reviews_df must be provided for sentiment features")
+        review_analysis_results = analyze_reviews(
+            reviews_df,
+            cache_path=review_cache_path,
+            force_refresh=force_refresh
+        )
+        sentiment_df = review_analysis_results['sentiment']
     
     # Join source sentiment
     pairs_df = pairs_df.join(
@@ -479,7 +493,15 @@ def add_review_sentiment_features(pairs_df: pl.DataFrame, reviews_df: pl.DataFra
     return pairs_df
 
 
-def add_user_behavioral_features(pairs_df: pl.DataFrame, reviews_df: pl.DataFrame, biz_df: pl.DataFrame) -> pl.DataFrame:
+def add_user_behavioral_features(
+    pairs_df: pl.DataFrame,
+    reviews_df: Optional[pl.DataFrame],
+    biz_df: pl.DataFrame,
+    *,
+    user_profiles: Optional[pl.DataFrame] = None,
+    user_profile_cache_path: Optional[Path] = None,
+    force_refresh: bool = False
+) -> pl.DataFrame:
     """
     Add user behavioral features to pairs dataframe.
     
@@ -502,7 +524,15 @@ def add_user_behavioral_features(pairs_df: pl.DataFrame, reviews_df: pl.DataFram
     print("\n[9/14] Adding user behavioral features...")
     
     # Get user profiles
-    user_profiles = create_user_profiles(reviews_df, biz_df)
+    if user_profiles is None:
+        if reviews_df is None:
+            raise ValueError("Either user_profiles or reviews_df must be provided for user behavioral features")
+        user_profiles = create_user_profiles(
+            reviews_df,
+            biz_df,
+            cache_path=user_profile_cache_path,
+            force_refresh=force_refresh
+        )
     
     # Join user profiles to pairs
     pairs_df = pairs_df.join(user_profiles, on="user_id", how="left")
@@ -876,7 +906,14 @@ def add_operating_hours_features(pairs_df: pl.DataFrame, biz_df: pl.DataFrame) -
     return pairs_df
 
 
-def add_review_topic_features(pairs_df: pl.DataFrame, reviews_df: pl.DataFrame) -> pl.DataFrame:
+def add_review_topic_features(
+    pairs_df: pl.DataFrame,
+    reviews_df: Optional[pl.DataFrame] = None,
+    *,
+    topics_df: Optional[pl.DataFrame] = None,
+    review_cache_path: Optional[Path] = None,
+    force_refresh: bool = False
+) -> pl.DataFrame:
     """
     Add review topic features to pairs dataframe.
     
@@ -896,8 +933,15 @@ def add_review_topic_features(pairs_df: pl.DataFrame, reviews_df: pl.DataFrame) 
     print("\n[12/14] Adding review topic features...")
     
     # Get restaurant topic analysis
-    review_analysis_results = analyze_reviews(reviews_df)
-    topics_df = review_analysis_results['topics']
+    if topics_df is None:
+        if reviews_df is None:
+            raise ValueError("Either topics_df or reviews_df must be provided for review topic features")
+        review_analysis_results = analyze_reviews(
+            reviews_df,
+            cache_path=review_cache_path,
+            force_refresh=force_refresh
+        )
+        topics_df = review_analysis_results['topics']
     
     # Join source topics
     pairs_df = pairs_df.join(
@@ -1089,7 +1133,18 @@ def add_service_options_features(pairs_df: pl.DataFrame, biz_df: pl.DataFrame) -
     return pairs_df
 
 
-def add_all_features(pairs_df: pl.DataFrame, biz_df: pl.DataFrame, reviews_df: pl.DataFrame = None) -> pl.DataFrame:
+def add_all_features(
+    pairs_df: pl.DataFrame,
+    biz_df: pl.DataFrame,
+    reviews_df: Optional[pl.DataFrame] = None,
+    *,
+    review_cache_path: Optional[Path] = None,
+    user_profile_cache_path: Optional[Path] = None,
+    max_reviews_per_biz: Optional[int] = 200,
+    force_refresh_review_cache: bool = False,
+    force_refresh_user_cache: bool = False,
+    analysis_context: Optional[Dict[str, pl.DataFrame]] = None
+) -> pl.DataFrame:
     """
     Add all feature groups to pairs dataframe.
     
@@ -1105,6 +1160,33 @@ def add_all_features(pairs_df: pl.DataFrame, biz_df: pl.DataFrame, reviews_df: p
     print("ADDING FEATURES TO POSITIVE PAIRS")
     print("=" * 80)
     
+    sentiment_df: Optional[pl.DataFrame] = None
+    topics_df: Optional[pl.DataFrame] = None
+    user_profiles: Optional[pl.DataFrame] = None
+    reviews_subset: Optional[pl.DataFrame] = None
+
+    if reviews_df is not None:
+        reviews_subset = reviews_df
+        if max_reviews_per_biz is not None and "gmap_id" in reviews_df.columns:
+            if "ts" in reviews_df.columns:
+                reviews_subset = reviews_df.sort("ts", descending=True)
+            reviews_subset = reviews_subset.group_by("gmap_id", maintain_order=True).head(max_reviews_per_biz)
+
+        analysis_results = analyze_reviews(
+            reviews_subset,
+            cache_path=review_cache_path,
+            force_refresh=force_refresh_review_cache
+        )
+        sentiment_df = analysis_results["sentiment"]
+        topics_df = analysis_results["topics"]
+
+        user_profiles = create_user_profiles(
+            reviews_subset,
+            biz_df,
+            cache_path=user_profile_cache_path,
+            force_refresh=force_refresh_user_cache
+        )
+
     # Original features (1-7)
     pairs_df = add_spatial_features(pairs_df)
     pairs_df = add_temporal_features(pairs_df)
@@ -1115,9 +1197,20 @@ def add_all_features(pairs_df: pl.DataFrame, biz_df: pl.DataFrame, reviews_df: p
     
     # New enhanced features (8-14)
     if reviews_df is not None:
-        pairs_df = add_review_sentiment_features(pairs_df, reviews_df)
-        pairs_df = add_user_behavioral_features(pairs_df, reviews_df, biz_df)
-        pairs_df = add_review_topic_features(pairs_df, reviews_df)
+        pairs_df = add_review_sentiment_features(
+            pairs_df,
+            sentiment_df=sentiment_df
+        )
+        pairs_df = add_user_behavioral_features(
+            pairs_df,
+            None,
+            biz_df,
+            user_profiles=user_profiles
+        )
+        pairs_df = add_review_topic_features(
+            pairs_df,
+            topics_df=topics_df
+        )
     
     pairs_df = add_cuisine_complementarity(pairs_df)
     pairs_df = add_operating_hours_features(pairs_df, biz_df)
@@ -1131,12 +1224,36 @@ def add_all_features(pairs_df: pl.DataFrame, biz_df: pl.DataFrame, reviews_df: p
     print(f"\n[14/14] Feature engineering complete!")
     print(f"  Total features: {len(pairs_df.columns)}")
     print(f"  Total positive pairs: {len(pairs_df):,}")
+
+    if analysis_context is not None:
+        if sentiment_df is not None:
+            analysis_context["sentiment_df"] = sentiment_df
+        if topics_df is not None:
+            analysis_context["topics_df"] = topics_df
+        if user_profiles is not None:
+            analysis_context["user_profiles_df"] = user_profiles
+        if reviews_subset is not None:
+            analysis_context["reviews_subset_df"] = reviews_subset
     
     return pairs_df
 
 
-def generate_negative_samples(pairs_df: pl.DataFrame, biz_df: pl.DataFrame,
-                              n_negatives: int = 4, random_seed: int = 42) -> pl.DataFrame:
+def generate_negative_samples(
+    pairs_df: pl.DataFrame,
+    biz_df: pl.DataFrame,
+    n_negatives: int = 4,
+    random_seed: int = 42,
+    *,
+    sentiment_df: Optional[pl.DataFrame] = None,
+    topics_df: Optional[pl.DataFrame] = None,
+    user_profiles: Optional[pl.DataFrame] = None,
+    reviews_df: Optional[pl.DataFrame] = None,
+    review_cache_path: Optional[Path] = None,
+    user_profile_cache_path: Optional[Path] = None,
+    max_reviews_per_biz: Optional[int] = 200,
+    force_refresh_review_cache: bool = False,
+    force_refresh_user_cache: bool = False
+) -> pl.DataFrame:
     """
     Generate negative samples using hybrid sampling strategy with realistic timestamps.
     
@@ -1303,6 +1420,56 @@ def generate_negative_samples(pairs_df: pl.DataFrame, biz_df: pl.DataFrame,
     # Add features to negative samples
     print("\n[4/4] Adding features to negative samples...")
     neg_df = add_all_features(neg_df, biz_df)
+
+    # Ensure we have augmented review/user features
+    reviews_subset = None
+    if (sentiment_df is None or topics_df is None) and reviews_df is not None:
+        reviews_subset = reviews_df
+        if max_reviews_per_biz is not None and "gmap_id" in reviews_df.columns:
+            if "ts" in reviews_df.columns:
+                reviews_subset = reviews_df.sort("ts", descending=True)
+            reviews_subset = reviews_subset.group_by("gmap_id", maintain_order=True).head(max_reviews_per_biz)
+        analysis_results = analyze_reviews(
+            reviews_subset,
+            cache_path=review_cache_path,
+            force_refresh=force_refresh_review_cache
+        )
+        if sentiment_df is None:
+            sentiment_df = analysis_results["sentiment"]
+        if topics_df is None:
+            topics_df = analysis_results["topics"]
+
+    if user_profiles is None and reviews_df is not None:
+        if reviews_subset is None:
+            reviews_subset = reviews_df
+            if max_reviews_per_biz is not None and "gmap_id" in reviews_df.columns:
+                if "ts" in reviews_df.columns:
+                    reviews_subset = reviews_df.sort("ts", descending=True)
+                reviews_subset = reviews_subset.group_by("gmap_id", maintain_order=True).head(max_reviews_per_biz)
+        user_profiles = create_user_profiles(
+            reviews_subset,
+            biz_df,
+            cache_path=user_profile_cache_path,
+            force_refresh=force_refresh_user_cache
+        )
+
+    if sentiment_df is not None and topics_df is not None and user_profiles is not None:
+        neg_df = add_review_sentiment_features(
+            neg_df,
+            sentiment_df=sentiment_df
+        )
+        neg_df = add_user_behavioral_features(
+            neg_df,
+            None,
+            biz_df,
+            user_profiles=user_profiles
+        )
+        neg_df = add_review_topic_features(
+            neg_df,
+            topics_df=topics_df
+        )
+    else:
+        print("  ⚠ Skipping review-based features for negative samples (analysis data unavailable)")
     
     # Override label to 0
     neg_df = neg_df.with_columns([
@@ -1344,28 +1511,40 @@ def main():
     # Load reviews for sentiment and user features
     reviews_input = processed_dir / "reviews_ga.parquet"
     reviews_df = pl.read_parquet(reviews_input)
-    
+
     print(f"  Loaded {len(pairs_df):,} positive pairs")
     print(f"  Loaded {len(biz_df):,} businesses")
     print(f"  Loaded {len(reviews_df):,} reviews")
-    
+
+    review_cache_dir = processed_dir / "cache"
+    user_profile_cache = review_cache_dir / "user_profiles.parquet"
+    max_reviews_per_biz = 200
+
     # Add features to positive pairs
-    pairs_with_features = add_all_features(pairs_df, biz_df, reviews_df)
-    
+    analysis_context: Dict[str, pl.DataFrame] = {}
+    pairs_with_features = add_all_features(
+        pairs_df,
+        biz_df,
+        reviews_df,
+        review_cache_path=review_cache_dir,
+        user_profile_cache_path=user_profile_cache,
+        max_reviews_per_biz=max_reviews_per_biz,
+        analysis_context=analysis_context
+    )
+
     # Generate negative samples
-    negative_pairs = generate_negative_samples(pairs_with_features, biz_df, n_negatives=4)
-    
-    # Add features to negative samples (they need the same features)
-    if len(negative_pairs) > 0:
-        print("\nAdding features to negative samples...")
-        if reviews_df is not None:
-            negative_pairs = add_review_sentiment_features(negative_pairs, reviews_df)
-            negative_pairs = add_user_behavioral_features(negative_pairs, reviews_df, biz_df)
-            negative_pairs = add_review_topic_features(negative_pairs, reviews_df)
-        
-        negative_pairs = add_cuisine_complementarity(negative_pairs)
-        negative_pairs = add_operating_hours_features(negative_pairs, biz_df)
-        negative_pairs = add_service_options_features(negative_pairs, biz_df)
+    negative_pairs = generate_negative_samples(
+        pairs_with_features,
+        biz_df,
+        n_negatives=4,
+        sentiment_df=analysis_context.get("sentiment_df"),
+        topics_df=analysis_context.get("topics_df"),
+        user_profiles=analysis_context.get("user_profiles_df"),
+        reviews_df=analysis_context.get("reviews_subset_df"),
+        review_cache_path=review_cache_dir,
+        user_profile_cache_path=user_profile_cache,
+        max_reviews_per_biz=max_reviews_per_biz
+    )
     
     # Combine positive and negative samples
     print("\n" + "=" * 80)

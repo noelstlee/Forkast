@@ -6,6 +6,7 @@ Extracts sentiment, topics, and behavioral patterns from review text.
 import polars as pl
 import numpy as np
 from typing import Optional, Dict, List
+from pathlib import Path
 import re
 
 
@@ -201,7 +202,11 @@ def calculate_review_similarity(src_reviews: pl.Series, dst_reviews: pl.Series) 
         return intersection / union if union > 0 else 0.0
 
 
-def analyze_reviews(reviews_df: pl.DataFrame) -> Dict[str, pl.DataFrame]:
+def analyze_reviews(
+    reviews_df: pl.DataFrame,
+    cache_path: Optional[Path] = None,
+    force_refresh: bool = False
+) -> Dict[str, pl.DataFrame]:
     """
     Complete review analysis pipeline.
     
@@ -215,19 +220,48 @@ def analyze_reviews(reviews_df: pl.DataFrame) -> Dict[str, pl.DataFrame]:
     print("REVIEW ANALYSIS")
     print("=" * 60)
     
-    # Check if TextBlob is available
-    try:
-        from textblob import TextBlob
-        print("  ✓ TextBlob available for sentiment analysis")
-    except ImportError:
-        print("  ⚠ TextBlob not available, using fallback sentiment analysis")
-        print("    Install with: pip install textblob")
-    
-    # Extract sentiment features
-    sentiment_df = extract_restaurant_sentiment(reviews_df)
-    
-    # Extract topic features
-    topics_df = extract_restaurant_topics(reviews_df)
+    cache_dir: Optional[Path] = Path(cache_path) if cache_path else None
+    sentiment_cache: Optional[Path] = None
+    topics_cache: Optional[Path] = None
+
+    if cache_dir is not None:
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        sentiment_cache = cache_dir / "review_sentiment.parquet"
+        topics_cache = cache_dir / "review_topics.parquet"
+
+    sentiment_df: Optional[pl.DataFrame] = None
+    topics_df: Optional[pl.DataFrame] = None
+
+    if (
+        not force_refresh
+        and sentiment_cache is not None
+        and topics_cache is not None
+        and sentiment_cache.exists()
+        and topics_cache.exists()
+    ):
+        print("  ✓ Loaded cached review analysis")
+        sentiment_df = pl.read_parquet(sentiment_cache)
+        topics_df = pl.read_parquet(topics_cache)
+
+    if sentiment_df is None or topics_df is None:
+        # Check if TextBlob is available
+        try:
+            from textblob import TextBlob
+            print("  ✓ TextBlob available for sentiment analysis")
+        except ImportError:
+            print("  ⚠ TextBlob not available, using fallback sentiment analysis")
+            print("    Install with: pip install textblob")
+
+        # Extract sentiment features
+        sentiment_df = extract_restaurant_sentiment(reviews_df)
+
+        # Extract topic features
+        topics_df = extract_restaurant_topics(reviews_df)
+
+        if sentiment_cache is not None and topics_cache is not None:
+            sentiment_df.write_parquet(sentiment_cache)
+            topics_df.write_parquet(topics_cache)
+            print("  ✓ Cached review analysis results")
     
     print(f"\n✓ Review analysis complete!")
     print(f"  Sentiment features: {len(sentiment_df):,} restaurants")

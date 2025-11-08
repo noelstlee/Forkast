@@ -8,6 +8,7 @@ NEW: Geographic splitting for Atlanta vs rest of Georgia
 
 import polars as pl
 from pathlib import Path
+from typing import Optional
 import shutil
 
 # Atlanta metropolitan area bounds
@@ -415,11 +416,35 @@ def main():
     print("\n✓✓✓ PHASE A4 COMPLETE ✓✓✓\n")
 
 
-def split_xgboost_geographic():
-    """Split XGBoost data geographically: train on non-Atlanta, test on Atlanta."""
-    # Paths
+def split_xgboost_geographic(processed_dir: Optional[Path] = None):
+    """
+    Split XGBoost data geographically: train on non-Atlanta, test on Atlanta.
+    
+    Args:
+        processed_dir: Optional path to processed data directory.
+                      If None, will check both SSD and local locations.
+    """
+    # Paths - check both SSD and local locations
     base_dir = Path(__file__).parent.parent.parent
-    processed_dir = base_dir / "data" / "processed" / "ga"
+    
+    if processed_dir is None:
+        # Try SSD first, then fall back to local
+        ssd_path = Path("/Volumes/SunnySSD") / "Forkast_processed" / "ga"
+        local_path = base_dir / "data" / "processed" / "ga"
+        
+        if ssd_path.exists() and (ssd_path / "features_ga.parquet").exists():
+            processed_dir = ssd_path
+            print(f"  Using SSD location: {processed_dir}")
+        elif local_path.exists() and (local_path / "features_ga.parquet").exists():
+            processed_dir = local_path
+            print(f"  Using local location: {processed_dir}")
+        else:
+            # Default to local if neither exists
+            processed_dir = local_path
+            print(f"  Defaulting to local location: {processed_dir}")
+            print(f"  ⚠️  features_ga.parquet not found - ensure Phase A3 (feature engineering) is completed first")
+    else:
+        processed_dir = Path(processed_dir)
     
     features_input = processed_dir / "features_ga.parquet"
     biz_input = processed_dir / "biz_ga.parquet"
@@ -431,6 +456,19 @@ def split_xgboost_geographic():
     print(f"  - {features_input}")
     print(f"  - {biz_input}")
     
+    # Check if input files exist
+    if not features_input.exists():
+        raise FileNotFoundError(
+            f"Features file not found: {features_input}\n"
+            f"Please run Phase A3 (feature engineering) first to generate this file."
+        )
+    
+    if not biz_input.exists():
+        raise FileNotFoundError(
+            f"Business file not found: {biz_input}\n"
+            f"Please run Phase A1 (data ingestion) first to generate this file."
+        )
+    
     # Create directories
     print(f"\nCreating output directories...")
     xgb_dir, _ = create_directories(processed_dir)
@@ -438,8 +476,17 @@ def split_xgboost_geographic():
     
     # Load data
     print(f"\n[Loading data...]")
-    features_df = pl.read_parquet(features_input)
-    biz_df = pl.read_parquet(biz_input)
+    try:
+        features_df = pl.read_parquet(features_input)
+        biz_df = pl.read_parquet(biz_input)
+    except Exception as e:
+        raise RuntimeError(
+            f"Error reading parquet files:\n"
+            f"  features: {features_input}\n"
+            f"  businesses: {biz_input}\n"
+            f"  Error: {e}\n"
+            f"\nThe files may be corrupted or incomplete. Try re-running previous phases."
+        ) from e
     print(f"  XGBoost features: {len(features_df):,}")
     print(f"  Businesses: {len(biz_df):,}")
     
@@ -466,16 +513,67 @@ def split_xgboost_geographic():
     return xgb_train, xgb_val, xgb_test
 
 
-def split_xgboost_only():
-    """Split only XGBoost data (for consolidated pipeline)."""
-    PROCESSED_DIR = Path(__file__).parent.parent.parent / "data" / "processed" / "ga"
-    XGBOOST_DIR = PROCESSED_DIR / "xgboost_data"
-
-    print("\n[Loading data...]")
-    xgboost_df = pl.read_parquet(PROCESSED_DIR / "features_ga.parquet")
-    biz_df = pl.read_parquet(PROCESSED_DIR / "biz_ga.parquet")
+def split_xgboost_only(processed_dir: Optional[Path] = None):
+    """
+    Split only XGBoost data (for consolidated pipeline).
     
-    print(f"  XGBoost: {len(xgboost_df):,} samples")
+    Args:
+        processed_dir: Optional path to processed data directory.
+                      If None, will check both SSD and local locations.
+    """
+    # Paths - check both SSD and local locations
+    base_dir = Path(__file__).parent.parent.parent
+    
+    if processed_dir is None:
+        # Try SSD first, then fall back to local
+        ssd_path = Path("/Volumes/SunnySSD") / "Forkast_processed" / "ga"
+        local_path = base_dir / "data" / "processed" / "ga"
+        
+        if ssd_path.exists() and (ssd_path / "features_ga.parquet").exists():
+            processed_dir = ssd_path
+            print(f"  Using SSD location: {processed_dir}")
+        elif local_path.exists() and (local_path / "features_ga.parquet").exists():
+            processed_dir = local_path
+            print(f"  Using local location: {processed_dir}")
+        else:
+            # Default to local if neither exists
+            processed_dir = local_path
+            print(f"  Defaulting to local location: {processed_dir}")
+            print(f"  ⚠️  features_ga.parquet not found - ensure Phase A3 (feature engineering) is completed first")
+    else:
+        processed_dir = Path(processed_dir)
+    
+    XGBOOST_DIR = processed_dir / "xgboost_data"
+    
+    features_input = processed_dir / "features_ga.parquet"
+    biz_input = processed_dir / "biz_ga.parquet"
+    
+    # Check if input files exist
+    if not features_input.exists():
+        raise FileNotFoundError(
+            f"Features file not found: {features_input}\n"
+            f"Please run Phase A3 (feature engineering) first to generate this file."
+        )
+    
+    if not biz_input.exists():
+        raise FileNotFoundError(
+            f"Business file not found: {biz_input}\n"
+            f"Please run Phase A1 (data ingestion) first to generate this file."
+        )
+    
+    print("\n[Loading data...]")
+    try:
+        xgboost_df = pl.read_parquet(features_input)
+        biz_df = pl.read_parquet(biz_input)
+        print(f"  XGBoost: {len(xgboost_df):,} samples")
+    except Exception as e:
+        raise RuntimeError(
+            f"Error reading parquet files:\n"
+            f"  features: {features_input}\n"
+            f"  businesses: {biz_input}\n"
+            f"  Error: {e}\n"
+            f"\nThe files may be corrupted or incomplete. Try re-running previous phases."
+        ) from e
     
     # Create directories
     XGBOOST_DIR.mkdir(parents=True, exist_ok=True)

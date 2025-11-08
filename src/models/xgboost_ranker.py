@@ -336,7 +336,7 @@ def predict_ranking(model: xgb.Booster, df: pl.DataFrame, top_k: int = 10) -> pl
     df = df.sort(['src_gmap_id', 'src_ts'])
 
     # One-hot encode categorical features (same as training)
-    print("\n[1/4] One-hot encoding categorical features...")
+    print("\nEncoding features and predicting...")
     df_encoded = df.clone()
 
     for cat_feature in CATEGORICAL_FEATURES:
@@ -347,59 +347,55 @@ def predict_ranking(model: xgb.Booster, df: pl.DataFrame, top_k: int = 10) -> pl
     feature_cols = ALL_BASE_FEATURES + [col for col in df_encoded.columns
                                         if any(col.startswith(cat + '_') for cat in CATEGORICAL_FEATURES)]
 
-    # Get features
+    # Get features and predict
     X = df_encoded.select(feature_cols).to_numpy().astype(np.float32)
-
-    # Predict scores
-    print("\n[2/4] Predicting scores...")
     dtest = xgb.DMatrix(X)
     scores = model.predict(dtest)
-
-    # Add scores to dataframe
     df = df.with_columns(pl.Series("score", scores))
 
-    # Group by source visit and get top-K per group
-    print(f"\n[3/4] Selecting top-{top_k} per source visit...")
-
-    # Create a query identifier
+    # Create query identifier and rank
+    print(f"Ranking top-{top_k} per query...")
     df = df.with_columns([
         (pl.col('src_gmap_id') + '_' + pl.col('src_ts').cast(pl.Utf8)).alias('query_id')
     ])
 
-    # Get top-K per query
-    predictions = []
-
-    for query_id in df['query_id'].unique():
-        query_candidates = df.filter(pl.col('query_id') == query_id)
-        top_k_candidates = query_candidates.sort('score', descending=True).head(top_k)
-        predictions.append(top_k_candidates)
-
-    predictions_df = pl.concat(predictions)
-
-    print(f"  ✓ Generated {len(predictions_df):,} predictions")
-    print(f"  ✓ For {len(df['query_id'].unique()):,} queries")
-
-    # Add rank column
-    print(f"\n[4/4] Adding rank column...")
-    predictions_df = predictions_df.with_columns([
-        pl.col('score').rank(method='ordinal', descending=True).over('query_id').alias('rank')
+    # Rank candidates per query (higher score = rank 1)
+    df = df.with_columns([
+        pl.col('score')
+        .rank(method='ordinal', descending=True)
+        .over('query_id')
+        .alias('rank')
     ])
+
+    # Keep only top-K per query
+    predictions_df = (
+        df
+        .filter(pl.col('rank') <= top_k)
+        .with_columns(pl.col('rank').cast(pl.Int32))
+        .sort(['query_id', 'rank'])
+    )
+
+    num_queries = predictions_df['query_id'].n_unique()
+    print(f"✓ Generated {len(predictions_df):,} predictions for {num_queries:,} queries")
 
     return predictions_df
 
 
-def evaluate_ranking(predictions_df: pl.DataFrame, k_values: List[int] = [1, 5, 10]) -> Dict:
+def evaluate_ranking(predictions_df: pl.DataFrame, k_values: List[int] = [1, 5, 10], 
+                     compute_ndcg: bool = False, ndcg_sample_size: int = 10000) -> Dict:
     """
-    Evaluate ranking predictions using Recall@K, MRR, and nDCG@K.
+    Evaluate ranking predictions using Recall@K, MRR, and optionally nDCG@K.
 
     Metrics:
     - Recall@K: % of queries where actual next visit is in top-K
     - MRR (Mean Reciprocal Rank): Average of 1/rank for actual visits
-    - nDCG@K: Normalized Discounted Cumulative Gain (quality of ranking)
+    - nDCG@K: Normalized Discounted Cumulative Gain (quality of ranking) [OPTIONAL - memory intensive]
 
     Args:
         predictions_df: Predictions DataFrame with rank and label columns
         k_values: List of K values to evaluate
+        compute_ndcg: Whether to compute nDCG (can be memory intensive, disabled by default)
+        ndcg_sample_size: Sample this many queries for nDCG computation to save memory
 
     Returns:
         Dictionary with metric results
@@ -409,83 +405,100 @@ def evaluate_ranking(predictions_df: pl.DataFrame, k_values: List[int] = [1, 5, 
     print("=" * 80)
 
     metrics = {}
-
-    # Group by query
-    queries = predictions_df.group_by('query_id')
-
-    print(f"\nEvaluating {len(predictions_df['query_id'].unique()):,} queries...")
     
-    # Diagnostic information
-    print(f"\nDiagnostic Information:")
+    total_queries = predictions_df['query_id'].n_unique()
+    print(f"\nEvaluating {total_queries:,} queries...")
+    
+    # Diagnostic information (condensed)
     total_predictions = len(predictions_df)
     positive_predictions = (predictions_df['label'] == 1).sum()
-    negative_predictions = (predictions_df['label'] == 0).sum()
-    print(f"  Total predictions: {total_predictions:,}")
-    print(f"  Positive labels: {positive_predictions:,}")
-    print(f"  Negative labels: {negative_predictions:,}")
-    print(f"  Positive ratio: {positive_predictions/total_predictions:.4f}")
-    
-    # Check if we have realistic ranking scenario
-    queries_with_positives = predictions_df.filter(pl.col('label') == 1)['query_id'].n_unique()
-    total_queries = predictions_df['query_id'].n_unique()
-    print(f"  Queries with positive examples: {queries_with_positives:,}/{total_queries:,}")
     
     if positive_predictions == 0:
         print("  ⚠️  WARNING: No positive labels found! Check data preparation.")
         return {}
     
+    queries_with_positives = predictions_df.filter(pl.col('label') == 1)['query_id'].n_unique()
+    
     if queries_with_positives == total_queries:
         print("  ⚠️  WARNING: Every query has exactly one positive - this may indicate data leakage!")
 
-    # Recall@K
-    print(f"\n[1/3] Calculating Recall@K...")
+    # Recall@K - vectorized, memory efficient
+    print(f"\nCalculating Recall@K and MRR...")
     for k in k_values:
         # For each query, check if actual visit (label=1) is in top-K
         top_k_df = predictions_df.filter(pl.col('rank') <= k)
         queries_with_hit = top_k_df.filter(pl.col('label') == 1)['query_id'].unique()
-        total_queries = predictions_df['query_id'].n_unique()
 
         recall = len(queries_with_hit) / total_queries
         metrics[f'recall@{k}'] = recall
-        print(f"  Recall@{k}: {recall:.4f} ({len(queries_with_hit):,}/{total_queries:,} queries)")
+        print(f"  Recall@{k}: {recall:.4f}")
 
     # MRR (Mean Reciprocal Rank)
-    print(f"\n[2/3] Calculating MRR...")
     actual_visits = predictions_df.filter(pl.col('label') == 1)
-    reciprocal_ranks = 1.0 / actual_visits['rank'].to_numpy()
-    mrr = np.mean(reciprocal_ranks)
-    metrics['mrr'] = mrr
-    print(f"  MRR: {mrr:.4f}")
+    if len(actual_visits) > 0:
+        reciprocal_ranks = 1.0 / actual_visits['rank'].to_numpy()
+        mrr = np.mean(reciprocal_ranks)
+        metrics['mrr'] = mrr
+        print(f"  MRR: {mrr:.4f}")
+    else:
+        metrics['mrr'] = 0.0
+        print(f"  MRR: 0.0000")
 
-    # nDCG@K
-    print(f"\n[3/3] Calculating nDCG@K...")
-    for k in k_values:
-        dcg_scores = []
+    # nDCG@K - OPTIONAL (memory intensive, sampled for efficiency)
+    if compute_ndcg:
+        print(f"\nCalculating nDCG@K (sampled: {min(ndcg_sample_size, total_queries):,} queries)...")
+        
+        # Sample queries to reduce memory usage
+        all_query_ids = predictions_df['query_id'].unique().to_list()
+        if len(all_query_ids) > ndcg_sample_size:
+            import random
+            random.seed(42)
+            sampled_query_ids = random.sample(all_query_ids, ndcg_sample_size)
+            sample_df = predictions_df.filter(pl.col('query_id').is_in(sampled_query_ids))
+        else:
+            sample_df = predictions_df
+        
+        # Process in batches to avoid memory issues
+        batch_size = 1000
+        partitions = sample_df.sort(['query_id', 'rank']).partition_by('query_id', maintain_order=True)
+        
+        for k in k_values:
+            ndcg_scores = []
+            batch_scores = []
+            
+            for i, group_df in enumerate(partitions):
+                top_k_df = group_df.filter(pl.col('rank') <= k)
+                if top_k_df.is_empty():
+                    continue
 
-        for query_id in predictions_df['query_id'].unique():
-            query_preds = predictions_df.filter(pl.col('query_id') == query_id).sort('rank')
-            top_k = query_preds.head(k)
+                relevance = top_k_df['label'].to_numpy()
+                positions = np.arange(1, len(relevance) + 1)
 
-            # DCG = sum(relevance / log2(rank + 1))
-            relevance = top_k['label'].to_numpy()
-            ranks = top_k['rank'].to_numpy()
-            dcg = np.sum(relevance / np.log2(ranks + 1))
+                dcg = np.sum(relevance / np.log2(positions + 1))
+                ideal_relevance = np.sort(relevance)[::-1]
+                idcg = np.sum(ideal_relevance / np.log2(np.arange(1, len(ideal_relevance) + 1) + 1))
 
-            # IDCG (ideal DCG - if we had perfect ranking)
-            ideal_relevance = np.sort(relevance)[::-1]
-            idcg = np.sum(ideal_relevance / np.log2(np.arange(1, len(ideal_relevance) + 1) + 1))
-
-            # nDCG
-            ndcg = dcg / idcg if idcg > 0 else 0
-            dcg_scores.append(ndcg)
-
-        ndcg_mean = np.mean(dcg_scores)
-        metrics[f'ndcg@{k}'] = ndcg_mean
-        print(f"  nDCG@{k}: {ndcg_mean:.4f}")
+                ndcg = dcg / idcg if idcg > 0 else 0.0
+                batch_scores.append(ndcg)
+                
+                # Process in batches to avoid memory accumulation
+                if (i + 1) % batch_size == 0:
+                    ndcg_scores.extend(batch_scores)
+                    batch_scores = []
+            
+            # Add remaining scores
+            if batch_scores:
+                ndcg_scores.extend(batch_scores)
+            
+            ndcg_mean = np.mean(ndcg_scores) if ndcg_scores else 0.0
+            metrics[f'ndcg@{k}'] = ndcg_mean
+            print(f"  nDCG@{k}: {ndcg_mean:.4f}")
+    else:
+        print(f"\n⏭️  Skipping nDCG@K (set compute_ndcg=True to enable)")
 
     # Print summary
     print("\n" + "=" * 80)
-    print("EVALUATION SUMMARY")
+    print("FINAL METRICS")
     print("=" * 80)
     for metric, value in metrics.items():
         print(f"  {metric}: {value:.4f}")
