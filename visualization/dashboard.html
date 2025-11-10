@@ -1,0 +1,278 @@
+<!-- Code inspired by d3-graph-gallery.com -->
+<!DOCTYPE html>
+<meta charset="utf-8">
+
+<!-- Load d3.js and the geo projection plugin -->
+<script src="https://d3js.org/d3.v4.js"></script>
+<script src="https://d3js.org/d3-geo-projection.v2.min.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/holtzy/D3-graph-gallery@master/LIB/sankey.js"></script>
+
+<!-- Load Leaflet -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.3.4/dist/leaflet.css" integrity="sha512-puBpdR0798OZvTTbP4A8Ix/l+A4dHDD0DGqYW6RQ+9jxkRFclaxxQb/SJAWZfWAkuyeQUytO7+7N4QKrDh+drA==" crossorigin=""/>
+<script src="https://unpkg.com/leaflet@1.3.4/dist/leaflet.js" integrity="sha512-nMMmRyTVoLYqjP9hrbed9S+FzjZHW5gY1TWCHA5ckwXZBadntCNs8kEqAWdrb9O7rxbCaA4lKTIWjDXZxflOcA==" crossorigin=""></script>
+
+<!-- Create an element where the map will take place -->
+<div id="searchInput"></div>
+<div id="mapid"></div>
+<div id="card"></div>
+<div id="chart"></div>
+
+
+<style>
+
+    #mapid { height: 750px; width: 600px; }
+    #chart {
+        position: absolute; /* Use absolute positioning */
+        bottom: 20px;       /* Set distance from the bottom */
+        right: 50px;        /* Set distance from the right */
+        }
+    #card {
+        position: absolute; /* Use absolute positioning */
+        top: 20px;       /* Set distance from the bottom */
+        right: 50px;        /* Set distance from the right */
+    }
+    .node rect {
+        cursor: move;
+        fill-opacity: .9;
+        shape-rendering: crispEdges;
+    }
+
+    .node text {
+        pointer-events: none;
+        text-shadow: 0 1px 0 #fff;
+    }
+
+    .link {
+        fill: none;
+        stroke: #000;
+        stroke-opacity: .2;
+    }
+
+    .link:hover {
+        stroke-opacity: .5;
+    }
+
+    .suggestion-val {
+        width: 200px
+    }
+    .suggestion-val:hover {
+        background-color: sandybrown;
+    }
+
+    input[type="text"] {
+        width: 195px
+    }
+
+
+
+</style>
+
+
+<script>
+
+    // mapid is the id of the div where the map will appear
+    var map = L
+        .map('mapid')
+        .setView([33.7490, -84.3880], 10);   // center position + zoom
+
+    // Add a tile to the map = a background. Comes from OpenStreetmap
+    L.tileLayer(
+        'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: 'Map data &copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a>',
+        maxZoom: 20,
+        minZoom: 5,
+        }).addTo(map);
+
+    // Add a svg layer to the map
+    L.svg().addTo(map);
+
+    // Function that update circle position if something change
+    function update() {
+    d3.selectAll("circle")
+        .attr("cx", function(d){ return map.latLngToLayerPoint([d.lat, d.long]).x })
+        .attr("cy", function(d){ return map.latLngToLayerPoint([d.lat, d.long]).y })
+    }
+
+    // If the user change the map (zoom or drag), I update circle position:
+    map.on("moveend", update)
+
+    d3.json('data/mock/businesses_sample.json', function(data) {
+        
+        search_cont = d3.select("#searchInput")
+        card = d3.select('#card')
+        chart = d3.select('#chart')
+
+        input = search_cont.append("input")
+            .attr("type", "text")
+
+        suggestions = search_cont.append("div")
+            .attr("id", "suggestions")
+
+        input.on("input", function() {
+            query = this.value.toLowerCase()
+            suggestions.selectAll('*').remove()
+            card.selectAll('*').remove()
+            chart.selectAll('*').remove()
+
+
+            if (query) {
+                matches = data.filter(item => item.name.toLowerCase().startsWith(query))
+                suggestions_vals = suggestions.selectAll('.suggestion-val')
+                    .data(matches)
+                    .enter()
+                    .append('div')
+                    .attr('class', 'suggestion-val')
+                        .text(d => d.name)
+                    .on("click", function(d) {
+                        input.property("value", d.name)
+                        suggestions.selectAll('*').remove()
+                        make_card(d)
+                        make_paths(map, d)
+                        make_sankey(d)
+                    })
+        
+            }
+        })
+
+
+
+    })
+    
+
+    function make_card(d) {
+        console.log(d)
+        card = d3.select("#card")
+
+        card.append('h4').text(d.name)
+        card.append("div").text("Google Maps ID: " + d.gmap_id)
+        card.append("div").text("Main Food Category: " + d.category_main)
+        card.append("div").text("Average Rating: " + d.avg_rating)
+
+    }
+
+    function make_paths(map, data) {
+        d3.select('#mapid').select('svg').selectAll('*').remove()
+
+
+        // Create data for circles:
+        markers = [
+            {long: +data.lon, lat: +data.lat}
+        ];
+        
+        // Select the svg area and add circles:
+        d3.select("#mapid")
+            .select("svg")
+            .selectAll("circles")
+            .data(markers)
+            .enter()
+            .append("circle")
+                .attr("cx", function(d){ return map.latLngToLayerPoint([d.lat, d.long]).x })
+                .attr("cy", function(d){ return map.latLngToLayerPoint([d.lat, d.long]).y })
+                .attr("r", 14)
+                .style("fill", "red")
+                .attr("stroke", "red")
+                .attr("stroke-width", 3)
+                .attr("fill-opacity", .4)
+
+    }
+
+    function make_sankey(d) {
+        // set the dimensions and margins of the graph
+        margin = {top: 10, right: 25, bottom: 10, left: 10},
+            width = 700 - margin.left - margin.right,
+            height = 400 - margin.top - margin.bottom;
+
+        // append the svg object to the body of the page
+        svg = d3.select("#chart").append("svg")
+            .attr("width", width + margin.left + margin.right)
+            .attr("height", height + margin.top + margin.bottom)
+        .append("g")
+            .attr("transform",
+                "translate(" + margin.left + "," + margin.top + ")");
+        
+        svg.text("Using dummy data")
+
+        // Color scale used
+        color = d3.scaleOrdinal(d3.schemeCategory20);
+
+        // Set the sankey diagram properties
+        sankey = d3.sankey()
+            .nodeWidth(36)
+            .nodePadding(290)
+            .size([width, height]);
+
+        // load the data
+        // d3.json("data/mock/xgboost_predictions_sample.json", function(data) {
+
+            // filtered = data.filter(item => item.src_gmap_id === d.gmap_id)
+        
+        d3.json("https://raw.githubusercontent.com/holtzy/D3-graph-gallery/master/DATA/data_sankey.json", function(error, graph) {
+
+            // Constructs a new Sankey generator with the default settings.
+            sankey
+                .nodes(graph.nodes)
+                .links(graph.links)
+                .layout(1);
+
+            // add in the links
+            link = svg.append("g")
+                .selectAll(".link")
+                .data(graph.links)
+                .enter()
+                .append("path")
+                .attr("class", "link")
+                .attr("d", sankey.link() )
+                .style("stroke-width", function(d) { return Math.max(1, d.dy); })
+                .sort(function(a, b) { return b.dy - a.dy; });
+
+            // add in the nodes
+            node = svg.append("g")
+                .selectAll(".node")
+                .data(graph.nodes)
+                .enter().append("g")
+                .attr("class", "node")
+                .attr("transform", function(d) { return "translate(" + d.x + "," + d.y + ")"; })
+                .call(d3.drag()
+                    .subject(function(d) { return d; })
+                    .on("start", function() { this.parentNode.appendChild(this); })
+                    .on("drag", dragmove));
+
+            // add the rectangles for the nodes
+            node
+                .append("rect")
+                .attr("height", function(d) { return d.dy; })
+                .attr("width", sankey.nodeWidth())
+                .style("fill", function(d) { return d.color = color(d.name.replace(/ .*/, "")); })
+                .style("stroke", function(d) { return d3.rgb(d.color).darker(2); })
+                // Add hover text
+                .append("title")
+                .text(function(d) { return d.name + "\n" + "There is " + d.value + " stuff in this node"; });
+
+            // add in the title for the nodes
+                node
+                .append("text")
+                    .attr("x", -6)
+                    .attr("y", function(d) { return d.dy / 2; })
+                    .attr("dy", ".35em")
+                    .attr("text-anchor", "end")
+                    .attr("transform", null)
+                    .text(function(d) { return d.name; })
+                .filter(function(d) { return d.x < width / 2; })
+                    .attr("x", 6 + sankey.nodeWidth())
+                    .attr("text-anchor", "start");
+        });
+    }
+
+    function dragmove(d) {
+        d3.select(this)
+        .attr("transform",
+                "translate("
+                + d.x + ","
+                + (d.y = Math.max(
+                    0, Math.min(height - d.dy, d3.event.y))
+                    ) + ")");
+        sankey.relayout();
+        link.attr("d", sankey.link() );
+    }
+
+</script>
