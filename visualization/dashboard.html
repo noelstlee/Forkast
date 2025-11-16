@@ -13,23 +13,58 @@
 
 <!-- Create an element where the map will take place -->
 <div id="searchInput"></div>
-<div id="mapid"></div>
+<div id="mapid" width="100%"></div>
 <div id="card"></div>
 <div id="chart"></div>
 
 
 <style>
 
-    #mapid { height: 750px; width: 600px; }
+    #searchInput {
+        position: absolute; 
+        top: 20px;       
+        left: 50px;        
+        z-index: 1000; 
+        background-color: white;
+        padding: 10px;
+        border-radius: 5px;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+    }
+    #mapid { 
+        position: absolute;
+        top:0;
+        left:0;
+        right:0;
+        bottom:0;
+        width: 100vw;
+        height: 100vh;
+        z-index: 0;
+     }
+
     #chart {
-        position: absolute; /* Use absolute positioning */
-        bottom: 20px;       /* Set distance from the bottom */
-        right: 50px;        /* Set distance from the right */
+        position: absolute; 
+        bottom: 20px;
+        right: 50px; 
+        z-index: 1000;
+        background-color: white;
+        padding: 10px;
+        border-radius: 5px;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+        max-width: 750px;
+        min-width: none;
         }
+        
     #card {
-        position: absolute; /* Use absolute positioning */
-        top: 20px;       /* Set distance from the bottom */
-        right: 50px;        /* Set distance from the right */
+        position: absolute;
+        top: 20px; 
+        right: 50px;
+        z-index: 1000; 
+        background-color: white;
+        padding: 10px;
+        border-radius: 5px;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+        max-width: 250px;
+        display: none;
     }
     .node rect {
         cursor: move;
@@ -96,7 +131,7 @@
     // If the user change the map (zoom or drag), I update circle position:
     map.on("moveend", update)
 
-    d3.json('data/mock/businesses_sample.json', function(data) {
+    d3.json('../data/mock/businesses_sample.json', function(data) {
         
         search_cont = d3.select("#searchInput")
         card = d3.select('#card')
@@ -114,6 +149,7 @@
             card.selectAll('*').remove()
             chart.selectAll('*').remove()
 
+            card.attr("style", "display: none")
 
             if (query) {
                 matches = data.filter(item => item.name.toLowerCase().startsWith(query))
@@ -142,6 +178,7 @@
     function make_card(d) {
         console.log(d)
         card = d3.select("#card")
+        card.attr("style", "display: block")
 
         card.append('h4').text(d.name)
         card.append("div").text("Google Maps ID: " + d.gmap_id)
@@ -176,7 +213,22 @@
 
     }
 
+    function pan_marker(lat, long, pxOffset) {
+        console.log("in pan marker")
+        console.log(lat, long, pxOffset)
+        if (lat == null || long == null) return;
+        var loc = L.latLng(+lat, +long)
+        var curr = map.project(loc, map.getZoom())
+        var target = curr.subtract(L.point(pxOffset, 0))
+        var target_loc = map.unproject(target, map.getZoom())
+        map.panTo(target_loc, {animate: true});
+    }
+
     function make_sankey(d) {
+
+        pan_marker(d.lat, d.lon, -250)
+
+
         // set the dimensions and margins of the graph
         margin = {top: 10, right: 25, bottom: 10, left: 10},
             width = 700 - margin.left - margin.right,
