@@ -70,6 +70,7 @@
         cursor: pointer;
         font-weight: bold;
         z-index: 1010;
+        display: none;
     }
 
     #chart {
@@ -83,7 +84,7 @@
         box-shadow: 0 2px 6px rgba(0,0,0,0.3);
         max-width: 750px;
         min-width: none;
-
+        display: none
     }
         
     #card {
@@ -98,6 +99,23 @@
         max-width: 250px;
         display: none;
     }
+
+    /* #bar {
+        position: absolute;
+        bottom: 19px;
+        right: 25px;
+        width: 20px;
+        height: 700px;
+        background-color: white;
+        border-radius: 3px;
+        text-align: center;
+        line-height: 100px;
+        cursor: pointer;
+        font-weight: bold;
+        z-index: 1010;
+    } */
+
+
     .node rect {
         cursor: move;
         fill-opacity: .9;
@@ -289,6 +307,7 @@
                 "translate(" + margin.left + "," + margin.top + ")");
         
         d3.select("#chart").style("display", "block")
+        d3.select("#chart-toggle").style("display", "block")
 
         // Color scale used
         color = d3.scaleOrdinal(d3.schemeCategory20);
