@@ -56,3 +56,5 @@ src/data/lstm_preprocessing_transformer.py
 
 src/data/verify_rebalanced_data.py
 src/utils/practical_metrics.py
+
+outputs/
