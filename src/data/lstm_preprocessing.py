@@ -232,6 +232,73 @@ def process_split(
     return category_windowed, business_windowed
 
 
+def calculate_category_class_weights(train_df: pl.DataFrame, category_vocab: Dict[str, int]) -> Dict[int, float]:
+    """
+    Calculate class weights for handling category imbalance.
+    
+    Uses inverse frequency weighting: weight[i] = 1 / frequency[i]
+    Normalized so that weights sum to number of classes.
+    
+    Args:
+        train_df: Training sequences DataFrame (before windowing)
+        category_vocab: Category vocabulary mapping
+        
+    Returns:
+        Dictionary mapping category indices to weights
+    """
+    print("\n[Calculating category class weights for imbalance handling...]")
+    
+    # Count category frequencies in training data
+    category_counts = (
+        train_df
+        .group_by("category_main")
+        .agg(pl.len().alias("count"))
+        .sort("count", descending=True)
+    )
+    
+    # Calculate inverse frequency weights
+    total_samples = category_counts["count"].sum()
+    weights = {}
+    
+    for row in category_counts.iter_rows(named=True):
+        category = row["category_main"]
+        count = row["count"]
+        
+        if category in category_vocab:
+            idx = category_vocab[category]
+            # Inverse frequency: weight = total / (n_classes * count)
+            weight = total_samples / (len(category_vocab) * count)
+            weights[idx] = weight
+    
+    # Add weights for special tokens (PAD and UNK)
+    weights[category_vocab[PAD_TOKEN]] = 0.0  # Don't penalize padding
+    weights[category_vocab[UNK_TOKEN]] = 1.0  # Normal weight for unknown
+    
+    # Print statistics
+    print(f"  Total categories: {len(category_vocab)}")
+    print(f"  Categories with data: {len(weights) - 2}")  # Exclude PAD and UNK
+    
+    # Show imbalance ratio
+    category_freqs = [row["count"] for row in category_counts.iter_rows(named=True)]
+    if category_freqs:
+        max_freq = max(category_freqs)
+        min_freq = min(category_freqs)
+        imbalance_ratio = max_freq / min_freq
+        print(f"  Imbalance ratio: {imbalance_ratio:.1f}:1")
+        print(f"  Most common: {category_counts.row(0)[0]} ({category_counts.row(0)[1]:,} samples)")
+        print(f"  Least common: {category_counts.row(-1)[0]} ({category_counts.row(-1)[1]:,} samples)")
+    
+    # Show top 5 weights
+    sorted_weights = sorted([(cat, w) for cat, w in weights.items() if cat not in [0, 1]], 
+                           key=lambda x: x[1], reverse=True)
+    print(f"\n  Top 5 class weights:")
+    for cat_idx, weight in sorted_weights[:5]:
+        cat_name = [k for k, v in category_vocab.items() if v == cat_idx][0]
+        print(f"    {cat_name:20s}: {weight:.3f}")
+    
+    return weights
+
+
 def main():
     """Main preprocessing pipeline."""
     
@@ -252,6 +319,9 @@ def main():
     # Build vocabularies (only from training data)
     category_vocab = build_category_vocabulary(train_df)
     business_vocab = build_business_vocabulary(train_df, TOP_K_BUSINESSES)
+    
+    # Calculate category class weights for handling imbalance
+    category_class_weights = calculate_category_class_weights(train_df, category_vocab)
     
     # Process each split
     print("\n" + "=" * 80)
@@ -292,6 +362,14 @@ def main():
     with open(LSTM_DATA_DIR / "business_vocab.json", "w") as f:
         json.dump(business_vocab, f, indent=2)
     print(f"  ✓ Saved business_vocab.json ({len(business_vocab)} tokens)")
+    
+    # Save category class weights
+    print("\n[Saving category class weights...]")
+    # Convert int keys to strings for JSON serialization
+    weights_for_json = {str(k): v for k, v in category_class_weights.items()}
+    with open(LSTM_DATA_DIR / "category_class_weights.json", "w") as f:
+        json.dump(weights_for_json, f, indent=2)
+    print(f"  ✓ Saved category_class_weights.json ({len(category_class_weights)} classes)")
     
     # Print summary statistics
     print("\n" + "=" * 80)
