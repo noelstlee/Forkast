@@ -1,50 +1,41 @@
-<!-- Code inspired by d3-graph-gallery.com -->
+<!-- Forkast interactive map powered by Leaflet + D3 -->
 <!DOCTYPE html>
+<html lang="en">
 <meta charset="utf-8">
+<title>Forkast Venue Predictions</title>
 
-<!-- Load d3.js and the geo projection plugin -->
-<script src="https://d3js.org/d3.v4.js"></script>
-<script src="https://d3js.org/d3-geo-projection.v2.min.js"></script>
-<script src="https://cdn.jsdelivr.net/gh/holtzy/D3-graph-gallery@master/LIB/sankey.js"></script>
-
-<!-- Load Leaflet -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.3.4/dist/leaflet.css" integrity="sha512-puBpdR0798OZvTTbP4A8Ix/l+A4dHDD0DGqYW6RQ+9jxkRFclaxxQb/SJAWZfWAkuyeQUytO7+7N4QKrDh+drA==" crossorigin=""/>
+<script src="https://d3js.org/d3.v4.js"></script>
 <script src="https://unpkg.com/leaflet@1.3.4/dist/leaflet.js" integrity="sha512-nMMmRyTVoLYqjP9hrbed9S+FzjZHW5gY1TWCHA5ckwXZBadntCNs8kEqAWdrb9O7rxbCaA4lKTIWjDXZxflOcA==" crossorigin=""></script>
 
-<!-- Create an element where the map will take place -->
-<div id="logo"><img src="forkast_logo.png" alt="Logo"></div>
+<body>
+<div id="logo"><span class="logo-text">Forkast</span></div>
 <div id="searchInput"></div>
-<div id="mapid" width="100%"></div>
+<div id="mapid"></div>
 <div id="card"></div>
-<div id="chart"></div>
-    <div id="chart-toggle">−</div>
-
-<div id="bar"></div>
+<div id="legend">
+    <div class="legend-item"><span class="legend-dot"></span> Venues</div>
+    <div class="legend-item"><span class="legend-line legend-line-strong"></span> Higher score</div>
+    <div class="legend-item"><span class="legend-line legend-line-weak"></span> Lower score</div>
+</div>
+<div id="loading-overlay">
+    <div class="loading-card">
+        <div class="spinner"></div>
+        <div class="loading-text">Preparing data…</div>
+        <div class="loading-subtext">First launch may take up to a minute while predictions cache warms up.</div>
+    </div>
+</div>
 
 <style>
-
-    #logo {
-        position: absolute; 
-        bottom: 10px;       
-        left: 10px;        
-        z-index: 1000; 
-        pointer-events: none;
-        }
-
-    #logo img {
-        width: 200px;
-        height: auto;
+    html, body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        width: 100%;
+        font-family: "Inter", "Helvetica Neue", Arial, sans-serif;
+        color: #1f2933;
     }
-    #searchInput {
-        position: absolute; 
-        top: 20px;       
-        left: 50px;        
-        z-index: 1000; 
-        background-color: white;
-        padding: 10px;
-        border-radius: 5px;
-        box-shadow: 0 2px 6px rgba(0,0,0,0.3);
-    }
+
     #mapid { 
         position: absolute;
         top:0;
@@ -56,111 +47,454 @@
         z-index: 0;
      }
     
-
-    #chart-toggle {
+    #logo {
         position: absolute;
-        bottom: 19px;
-        right: 50px;
-        width: 20px;
-        height: 430px;
-        background-color: rgba(255,119,35,1);
-        border-radius: 3px;
-        text-align: center;
-        line-height: 20px;
-        cursor: pointer;
-        font-weight: bold;
-        z-index: 1010;
-        display: none;
+        bottom: 12px;       
+        left: 12px;        
+        z-index: 1000; 
+        pointer-events: none;
     }
 
-    #chart {
+    #logo .logo-text {
+        font-size: 24px;
+        font-weight: 700;
+        letter-spacing: 1px;
+        color: #f97316;
+        text-shadow: 0 2px 10px rgba(15, 23, 42, 0.4);
+    }
+
+    #searchInput {
         position: absolute; 
-        bottom: 20px;
-        right: 50px; 
+        top: 24px;       
+        left: 32px;        
         z-index: 1000;
         background-color: white;
-        padding: 10px;
-        border-radius: 5px;
-        box-shadow: 0 2px 6px rgba(0,0,0,0.3);
-        max-width: 750px;
-        min-width: none;
-        display: none
+        padding: 16px;
+        border-radius: 8px;
+        box-shadow: 0 12px 24px rgba(15, 23, 42, 0.15);
+        width: 260px;
+        box-sizing: border-box;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    #searchInput input[type="text"] {
+        width: 100%;
+        padding: 8px 10px;
+        border-radius: 4px;
+        border: 1px solid #d1d5db;
+        font-size: 14px;
+        margin: 0;
+        box-sizing: border-box;
+    }
+
+    .search-status {
+        font-size: 12px;
+        color: #475569;
+        margin-bottom: 4px;
+    }
+
+    #suggestions {
+        max-height: 200px;
+        overflow-y: auto;
+    }
+
+    .suggestion-val {
+        padding: 6px 8px;
+        border-radius: 4px;
+        cursor: pointer;
+        transition: background-color 0.15s ease;
+    }
+
+    .suggestion-val:hover {
+        background-color: #fde68a;
     }
         
     #card {
         position: absolute;
-        top: 20px; 
-        right: 50px;
+        top: 24px; 
+        right: 32px;
         z-index: 1000; 
         background-color: white;
-        padding: 10px;
-        border-radius: 5px;
-        box-shadow: 0 2px 6px rgba(0,0,0,0.3);
-        max-width: 250px;
+        padding: 18px;
+        border-radius: 12px;
+        box-shadow: 0 20px 40px rgba(15, 23, 42, 0.18);
+        width: 320px;
         display: none;
+        max-height: 85vh;
+        overflow-y: auto;
     }
 
-    /* #bar {
-        position: absolute;
-        bottom: 19px;
-        right: 25px;
-        width: 20px;
-        height: 700px;
-        background-color: white;
-        border-radius: 3px;
-        text-align: center;
-        line-height: 100px;
+    #card h4 {
+        margin: 0;
+        font-size: 20px;
+        color: #1f2933;
+    }
+
+    .card-subtitle {
+        font-size: 14px;
+        color: #475569;
+        margin-bottom: 12px;
+    }
+
+    .card-stat {
+        font-size: 13px;
+        margin-bottom: 6px;
+    }
+
+    .highlight {
+        font-weight: 600;
+        color: #b45309;
+    }
+
+    .btn-primary {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        border: none;
+        border-radius: 6px;
+        padding: 10px 14px;
+        background-color: #f97316;
+        color: white;
+        font-size: 14px;
+        font-weight: 600;
         cursor: pointer;
-        font-weight: bold;
-        z-index: 1010;
-    } */
-
-
-    .node rect {
-        cursor: move;
-        fill-opacity: .9;
-        shape-rendering: crispEdges;
+        width: 100%;
+        margin-top: 4px;
+        transition: background-color 0.2s ease;
     }
 
-    .node text {
+    .btn-secondary {
+        margin-top: 8px;
+        width: 100%;
+        border: none;
+        border-radius: 6px;
+        padding: 9px 12px;
+        background-color: #e2e8f0;
+        color: #0f172a;
+        font-weight: 600;
+        cursor: pointer;
+    }
+
+    .btn-secondary:hover {
+        background-color: #cbd5f5;
+    }
+
+    .btn-primary:disabled {
+        background-color: #fbbf24;
+        cursor: progress;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+        background-color: #ea580c;
+    }
+
+    .prediction-status {
+        margin-top: 12px;
+        font-size: 13px;
+        color: #475569;
+    }
+
+    #prediction-list {
+        margin-top: 12px;
+        border-top: 1px solid #e2e8f0;
+        padding-top: 10px;
+    }
+
+    .prediction-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 8px 0;
+        border-bottom: 1px solid #f1f5f9;
+    }
+
+    .prediction-row:last-child {
+        border-bottom: none;
+    }
+
+    .prediction-rank {
+        width: 24px;
+        font-weight: 600;
+        color: #f97316;
+    }
+
+    .prediction-name {
+        flex: 1;
+        margin-left: 8px;
+        font-size: 13px;
+    }
+
+    .prediction-score {
+        font-weight: 600;
+        color: #0f172a;
+        font-size: 13px;
+        min-width: 48px;
+        text-align: right;
+    }
+
+    .empty-state {
+        padding: 16px;
+        text-align: center;
+        color: #94a3b8;
+        font-size: 13px;
+    }
+
+    #legend {
+        position: absolute;
+        bottom: 24px;
+        right: 32px;
+        background-color: rgba(255,255,255,0.95);
+        padding: 10px 14px;
+        border-radius: 8px;
+        box-shadow: 0 8px 20px rgba(15, 23, 42, 0.25);
+        z-index: 1000;
+        font-size: 12px;
+        color: #475569;
+    }
+
+    .legend-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 6px;
+    }
+
+    .legend-item:last-child {
+        margin-bottom: 0;
+    }
+
+    .legend-dot {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        display: inline-block;
+        background: #facc15;
+        border: 2px solid #b45309;
+        box-shadow: 0 0 4px rgba(250, 204, 21, 0.7);
+    }
+
+    .legend-line {
+        width: 24px;
+        height: 4px;
+        display: inline-block;
+        border-radius: 999px;
+        background: linear-gradient(90deg, #fde68a, #f97316);
+    }
+
+    .legend-line-strong {
+        background: linear-gradient(90deg, #fed7aa, #ea580c);
+        box-shadow: 0 0 6px rgba(234, 88, 12, 0.6);
+    }
+
+    .legend-line-weak {
+        background: linear-gradient(90deg, #fef3c7, #f59e0b);
+    }
+
+    #loading-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(255,255,255,0.92);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 2000;
+    }
+
+    .loading-card {
+        background: white;
+        border-radius: 12px;
+        padding: 24px 32px;
+        box-shadow: 0 30px 60px rgba(15, 23, 42, 0.25);
+        text-align: center;
+        max-width: 420px;
+    }
+
+    .spinner {
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        border: 4px solid #fde68a;
+        border-top-color: #f97316;
+        margin: 0 auto 12px;
+        animation: spin 1s linear infinite;
+    }
+
+    .loading-text {
+        font-weight: 600;
+        color: #0f172a;
+        margin-bottom: 6px;
+    }
+
+    .loading-subtext {
+        font-size: 13px;
+        color: #475569;
+    }
+
+    @keyframes spin {
+        to { transform: rotate(360deg); }
+    }
+
+    .leaflet-top.leaflet-left {
+        margin-top: 150px;
+        margin-left: 32px;
+    }
+
+    .card-section-title {
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: #94a3b8;
+        margin-top: 14px;
+        margin-bottom: 6px;
+    }
+
+    .meta-row {
+        font-size: 13px;
+        margin-bottom: 4px;
+        color: #1e293b;
+    }
+
+    .meta-row span {
+        color: #475569;
+    }
+
+    .meta-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+    }
+
+    .meta-chip {
+        background-color: #f1f5f9;
+        color: #334155;
+        border-radius: 999px;
+        padding: 2px 8px;
+        font-size: 11px;
+    }
+
+    .hours-table {
+        font-size: 12px;
+        color: #475569;
+        width: 100%;
+    }
+
+    .hours-table tr td:first-child {
+        width: 40%;
+        font-weight: 600;
+    }
+
+    .card-divider {
+        border-top: 1px solid #e2e8f0;
+        margin: 12px 0;
+    }
+
+    .meta-link {
+        color: #f97316;
+        font-size: 13px;
+        text-decoration: none;
+        font-weight: 600;
+    }
+
+    .meta-link:hover {
+        text-decoration: underline;
+    }
+
+    .selected-pin-wrapper {
         pointer-events: none;
-        text-shadow: 0 1px 0 #fff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
     }
 
-    .link {
-        fill: none;
-        stroke: #000;
-        stroke-opacity: .2;
+    .selected-pin {
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        background: radial-gradient(circle at 30% 30%, #fecaca, #dc2626 70%);
+        box-shadow: 0 0 12px rgba(220, 38, 38, 0.8), 0 0 18px rgba(220, 38, 38, 0.45);
+        animation: pin-pulse 1.8s ease-in-out infinite;
+        position: relative;
     }
 
-    .link:hover {
-        stroke-opacity: .5;
+    .selected-pin::after {
+        content: "";
+        position: absolute;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #fff;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        box-shadow: 0 0 6px rgba(255, 255, 255, 0.9);
     }
 
-    .suggestion-val {
-        width: 200px
+    @keyframes pin-pulse {
+        0% {
+            transform: scale(0.95);
+            box-shadow: 0 0 12px rgba(220, 38, 38, 0.6);
+        }
+        50% {
+            transform: scale(1.1);
+            box-shadow: 0 0 18px rgba(220, 38, 38, 0.9);
+        }
+        100% {
+            transform: scale(0.95);
+            box-shadow: 0 0 12px rgba(220, 38, 38, 0.6);
+        }
     }
-    .suggestion-val:hover {
-        background-color: sandybrown;
+
+    .prediction-path {
+        stroke-linecap: round;
+        stroke-dasharray: 10 6;
+        animation: dash-move 2.6s linear infinite;
+        filter: drop-shadow(0 0 4px rgba(249, 115, 22, 0.65));
     }
 
-    input[type="text"] {
-        width: 195px
+    .prediction-path.strong {
+        stroke-dasharray: 12 5;
+        animation-duration: 1.8s;
+        filter: drop-shadow(0 0 6px rgba(234, 88, 12, 0.85));
     }
 
+    .prediction-path.weak {
+        opacity: 0.7;
+        animation-duration: 3.2s;
+    }
 
-
+    @keyframes dash-move {
+        from {
+            stroke-dashoffset: 0;
+        }
+        to {
+            stroke-dashoffset: -120;
+        }
+    }
 </style>
 
-
 <script>
+    var DEFAULT_API_PORT = 9000;
+    var currentOrigin = window.location.origin;
+    var originWithoutPort = currentOrigin.replace(/:\d+$/, "");
+    var API_BASE_URL = window.API_BASE_URL || (originWithoutPort + ":" + DEFAULT_API_PORT);
+    var MAX_PREDICTIONS = 10;
 
-    // mapid is the id of the div where the map will appear
     var map = L
         .map('mapid')
-        .setView([33.7490, -84.3880], 10);   // center position + zoom
+        .setView([33.7490, -84.3880], 10);
 
-    // Add a tile to the map = a background. Comes from OpenStreetmap
+    map.createPane('predictionPane');
+    map.getPane('predictionPane').style.zIndex = 650;
+    map.createPane('selectedPinPane');
+    map.getPane('selectedPinPane').style.zIndex = 750;
+
     L.tileLayer(
         'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: 'Map data &copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a>',
@@ -168,228 +502,618 @@
         minZoom: 5,
         }).addTo(map);
 
-    // Add a svg layer to the map
-    L.svg().addTo(map);
+    var markerLayer = L.layerGroup().addTo(map);
+    var predictionLayer = L.layerGroup().addTo(map);
+    var destinationLayer = L.layerGroup().addTo(map);
+    var selectedPinMarker = null;
 
-    // Function that update circle position if something change
-    function update() {
-    d3.selectAll("circle")
-        .attr("cx", function(d){ return map.latLngToLayerPoint([d.lat, d.long]).x })
-        .attr("cy", function(d){ return map.latLngToLayerPoint([d.lat, d.long]).y })
+    var venues = [];
+    var venueById = {};
+    var markerById = {};
+    var venueDetailsCache = {};
+    var activeMarker = null;
+    var selectedVenue = null;
+    var overlay = d3.select("#loading-overlay");
+
+    function setOverlayMessage(message, subtext) {
+        overlay.select(".loading-text").text(message || "");
+        overlay.select(".loading-subtext").text(subtext || "");
     }
 
-    // If the user change the map (zoom or drag), I update circle position:
-    map.on("moveend", update)
+    function showOverlay(message, subtext) {
+        setOverlayMessage(message, subtext);
+        overlay.style("display", "flex");
+    }
 
-    d3.json('../data/mock/businesses_sample.json', function(data) {
-        
-        search_cont = d3.select("#searchInput")
-        card = d3.select('#card')
-        chart = d3.select('#chart')
+    function hideOverlay() {
+        overlay.style("display", "none");
+    }
 
-        input = search_cont.append("input")
+    showOverlay(
+        "Preparing data…",
+        "First launch may take up to a minute while the predictions index warms up."
+    );
+
+    var searchContainer = d3.select("#searchInput");
+    var card = d3.select("#card");
+
+    var input = searchContainer.append("input")
             .attr("type", "text")
+        .attr("placeholder", "Search venues...");
 
-        suggestions = search_cont.append("div")
-            .attr("id", "suggestions")
+    var statusLabel = searchContainer.append("div")
+        .attr("class", "search-status")
+        .text("Loading venues…");
+
+    var suggestions = searchContainer.append("div")
+        .attr("id", "suggestions");
 
         input.on("input", function() {
-            query = this.value.toLowerCase()
-            suggestions.selectAll('*').remove()
-            card.selectAll('*').remove()
-            chart.selectAll('*').remove()
-            d3.select('#mapid').select('svg').selectAll('*').remove()
-
-
-            card.attr("style", "display: none")
-
-            if (query) {
-                matches = data.filter(item => item.name.toLowerCase().startsWith(query))
-                suggestions_vals = suggestions.selectAll('.suggestion-val')
-                    .data(matches)
-                    .enter()
-                    .append('div')
-                    .attr('class', 'suggestion-val')
-                        .text(d => d.name)
-                    .on("click", function(d) {
-                        input.property("value", d.name)
-                        suggestions.selectAll('*').remove()
-                        make_card(d)
-                        make_paths(map, d)
-                        make_sankey(d)
-                    })
-        
-            }
-        })
-
-
-
-    })
-    
-    toggle = d3.select('#chart-toggle')
-    toggle.on("click", function() {
-        chart_div = d3.select('#chart')
-        display = chart_div.style("display")
-        if (display == "none") {
-            chart_div.style("display", "block")
-            toggle.text("−")
-        } else {
-            chart_div.style("display", "none")
-            toggle.text("+")
+        var query = this.value.toLowerCase();
+        suggestions.selectAll('*').remove();
+        if (!query) {
+            return;
         }
-    })
+        var matches = venues
+            .filter(function(item) {
+                return item.name && item.name.toLowerCase().includes(query);
+            })
+            .slice(0, 10);
+        if (!matches.length) {
+            suggestions.append("div")
+                .attr("class", "search-status")
+                .text("No matches");
+            return;
+        }
+        var items = suggestions.selectAll(".suggestion-val")
+            .data(matches, function(d) { return d.business_idx; });
 
-    function make_card(d) {
-        console.log(d)
-        card = d3.select("#card")
-        card.attr("style", "display: block")
+        items.exit().remove();
 
-        card.append('h4').text(d.name)
-        card.append("div").text("Google Maps ID: " + d.gmap_id)
-        card.append("div").text("Main Food Category: " + d.category_main)
-        card.append("div").text("Average Rating: " + d.avg_rating)
+        var enter = items.enter()
+            .append("div")
+            .attr("class", "suggestion-val")
+            .text(function(d) { return d.name; })
+                    .on("click", function(d) {
+                input.property("value", d.name);
+                suggestions.selectAll("*").remove();
+                selectVenue(d.business_idx);
+            });
 
+        items.merge(enter)
+            .text(function(d) { return d.name; });
+    });
+
+    function selectVenue(businessIdx) {
+        var venue = venueById[businessIdx];
+        if (!venue) {
+            return;
+        }
+        selectedVenue = venue;
+        focusOnVenue(venue);
+        updateSelectedPin(venue);
+        resetPredictionLayers();
+        restoreAllMarkers();
+        renderVenueCard(venue, {showMetaLoader: true});
+        fetchVenueDetails(businessIdx);
     }
 
-    function make_paths(map, data) {
-        d3.select('#mapid').select('svg').selectAll('*').remove()
-
-
-        // Create data for circles:
-        markers = [
-            {long: +data.lon, lat: +data.lat}
-        ];
-        
-        // Select the svg area and add circles:
-        d3.select("#mapid")
-            .select("svg")
-            .selectAll("circles")
-            .data(markers)
-            .enter()
-            .append("circle")
-                .attr("cx", function(d){ return map.latLngToLayerPoint([d.lat, d.long]).x })
-                .attr("cy", function(d){ return map.latLngToLayerPoint([d.lat, d.long]).y })
-                .attr("r", 14)
-                .style("fill", "red")
-                .attr("stroke", "red")
-                .attr("stroke-width", 3)
-                .attr("fill-opacity", .4)
-
+    function focusOnVenue(venue) {
+        var panOffset = L.point(220, 0);
+        var loc = L.latLng(venue.lat, venue.lon);
+        var curr = map.project(loc, map.getZoom());
+        var target = curr.subtract(panOffset);
+        var targetLoc = map.unproject(target, map.getZoom());
+        map.panTo(targetLoc, {animate: true});
+        var marker = markerById[venue.business_idx];
+        highlightMarker(marker);
     }
 
-    function pan_marker(lat, long, pxOffset) {
-        console.log("in pan marker")
-        console.log(lat, long, pxOffset)
-        if (lat == null || long == null) return;
-        var loc = L.latLng(+lat, +long)
-        var curr = map.project(loc, map.getZoom())
-        var target = curr.subtract(L.point(pxOffset, 0))
-        var target_loc = map.unproject(target, map.getZoom())
-        map.panTo(target_loc, {animate: true});
+    var DEFAULT_MARKER_STYLE = {
+        radius: 5,
+        fillColor: "#facc15",
+        color: "#b45309",
+        weight: 1.5,
+        fillOpacity: 0.85,
+        opacity: 1
+    };
+
+    var ACTIVE_MARKER_STYLE = {
+        radius: 8,
+        fillColor: "#fbbf24",
+        color: "#f97316",
+        weight: 2.5,
+        fillOpacity: 0.95,
+        opacity: 1
+    };
+
+    var MUTED_MARKER_STYLE = {
+        radius: 4,
+        fillColor: "#facc15",
+        color: "#b45309",
+        weight: 1,
+        fillOpacity: 0,
+        opacity: 0
+    };
+
+    function applyMarkerStyle(marker, style) {
+        if (!marker) return;
+        marker.setStyle(style);
     }
 
-    function make_sankey(d) {
+    function highlightMarker(marker) {
+        if (!marker) return;
+        if (activeMarker) {
+            var shouldMute = activeMarker.options._muted;
+            applyMarkerStyle(activeMarker, shouldMute ? MUTED_MARKER_STYLE : DEFAULT_MARKER_STYLE);
+        }
+        applyMarkerStyle(marker, ACTIVE_MARKER_STYLE);
+        activeMarker = marker;
+    }
 
-        pan_marker(d.lat, d.lon, -250)
+    function resetPredictionLayers() {
+        predictionLayer.clearLayers();
+        destinationLayer.clearLayers();
+        var statusEl = card.select("#prediction-status");
+        if (!statusEl.empty()) {
+            statusEl.text("");
+        }
+        var listEl = card.select("#prediction-list");
+        if (!listEl.empty()) {
+            listEl.selectAll("*").remove();
+        }
+    }
 
+    function restoreAllMarkers() {
+        Object.values(markerById).forEach(function(marker) {
+            marker.options._muted = false;
+            applyMarkerStyle(marker, DEFAULT_MARKER_STYLE);
+        });
+        activeMarker = null;
+    }
 
-        // set the dimensions and margins of the graph
-        margin = {top: 10, right: 25, bottom: 10, left: 10},
-            width = 700 - margin.left - margin.right,
-            height = 400 - margin.top - margin.bottom;
+    function updateSelectedPin(venue) {
+        if (selectedPinMarker) {
+            map.removeLayer(selectedPinMarker);
+            selectedPinMarker = null;
+        }
+        if (!venue || venue.lat == null || venue.lon == null) {
+            return;
+        }
+        selectedPinMarker = L.marker([venue.lat, venue.lon], {
+            icon: L.divIcon({
+                className: "selected-pin-wrapper",
+                html: "<div class='selected-pin'></div>",
+                iconSize: [24, 24],
+                iconAnchor: [12, 12]
+            }),
+            pane: 'selectedPinPane'
+        }).addTo(map);
+    }
 
-        // append the svg object to the body of the page
-        svg = d3.select("#chart").append("svg")
-            .attr("width", width + margin.left + margin.right)
-            .attr("height", height + margin.top + margin.bottom)
-        .append("g")
-            .attr("transform",
-                "translate(" + margin.left + "," + margin.top + ")");
-        
-        d3.select("#chart").style("display", "block")
-        d3.select("#chart-toggle").style("display", "block")
+    function showOnlyPredictedMarkers(sourceId, predictions) {
+        var allowed = new Set([sourceId]);
+        predictions.forEach(function(pred) {
+            if (pred.dest_business_idx != null) {
+                allowed.add(pred.dest_business_idx);
+            }
+        });
+        Object.entries(markerById).forEach(function(entry) {
+            var id = Number(entry[0]);
+            var marker = entry[1];
+            var isAllowed = allowed.has(id);
+            marker.options._muted = !isAllowed;
+            applyMarkerStyle(marker, isAllowed ? DEFAULT_MARKER_STYLE : MUTED_MARKER_STYLE);
+        });
+        highlightMarker(markerById[sourceId]);
+    }
 
-        // Color scale used
-        color = d3.scaleOrdinal(d3.schemeCategory20);
+    function renderVenueCard(venue, options) {
+        options = options || {};
+        card.style("display", "block");
+        card.selectAll("*").remove();
 
-        // Set the sankey diagram properties
-        sankey = d3.sankey()
-            .nodeWidth(36)
-            .nodePadding(290)
-            .size([width, height]);
+        card.append("h4").text(venue.name || "Unknown venue");
+        card.append("div")
+            .attr("class", "card-subtitle")
+            .text(venue.category_main || "Category unavailable");
 
-        // load the data
-        // d3.json("data/mock/xgboost_predictions_sample.json", function(data) {
+        var stats = card.append("div");
+        stats.append("div")
+            .attr("class", "card-stat")
+            .html("<span class='highlight'>Rating:</span> " + formatMaybe(venue.avg_rating, "Not rated"));
+        stats.append("div")
+            .attr("class", "card-stat")
+            .html("<span class='highlight'>Reviews:</span> " + formatMaybe(venue.num_reviews, "—"));
+        stats.append("div")
+            .attr("class", "card-stat")
+            .html("<span class='highlight'>Price:</span> " + (venue.price_bucket || "Unknown"));
+        stats.append("div")
+            .attr("class", "card-stat")
+            .html("<span class='highlight'>Status:</span> " + formatStatus(venue.is_closed));
 
-            // filtered = data.filter(item => item.src_gmap_id === d.gmap_id)
-        
-        d3.json("https://raw.githubusercontent.com/holtzy/D3-graph-gallery/master/DATA/data_sankey.json", function(error, graph) {
+        var metaContainer = card.append("div").attr("id", "meta-container");
+        if (venue.meta) {
+            appendMetadata(metaContainer, venue.meta);
+        } else if (options.showMetaLoader) {
+            metaContainer.append("div")
+                .attr("class", "card-section-title")
+                .text("Details");
+            metaContainer.append("div")
+                .attr("class", "search-status")
+                .attr("id", "meta-status")
+                .text("Loading detailed metadata…");
+        } else {
+            metaContainer.append("div")
+                .attr("class", "search-status")
+                .text("Metadata unavailable for this venue.");
+        }
 
-            // Constructs a new Sankey generator with the default settings.
-            sankey
-                .nodes(graph.nodes)
-                .links(graph.links)
-                .layout(1);
+        var button = card.append("button")
+            .attr("class", "btn-primary")
+            .text("Show top predictions")
+            .on("click", function() {
+                fetchPredictions(venue, button);
+            });
 
-            // add in the links
-            link = svg.append("g")
-                .selectAll(".link")
-                .data(graph.links)
-                .enter()
-                .append("path")
-                .attr("class", "link")
-                .attr("d", sankey.link() )
-                .style("stroke-width", function(d) { return Math.max(1, d.dy); })
-                .sort(function(a, b) { return b.dy - a.dy; });
+        card.append("div")
+            .attr("class", "prediction-status")
+            .attr("id", "prediction-status");
 
-            // add in the nodes
-            node = svg.append("g")
-                .selectAll(".node")
-                .data(graph.nodes)
-                .enter().append("g")
-                .attr("class", "node")
-                .attr("transform", function(d) { return "translate(" + d.x + "," + d.y + ")"; })
-                .call(d3.drag()
-                    .subject(function(d) { return d; })
-                    .on("start", function() { this.parentNode.appendChild(this); })
-                    .on("drag", dragmove));
+        card.append("div")
+            .attr("id", "prediction-list");
 
-            // add the rectangles for the nodes
-            node
-                .append("rect")
-                .attr("height", function(d) { return d.dy; })
-                .attr("width", sankey.nodeWidth())
-                .style("fill", function(d) { return d.color = color(d.name.replace(/ .*/, "")); })
-                .style("stroke", function(d) { return d3.rgb(d.color).darker(2); })
-                // Add hover text
-                .append("title")
-                .text(function(d) { return d.name + "\n" + "There is " + d.value + " stuff in this node"; });
+        card.append("button")
+            .attr("class", "btn-secondary")
+            .text("Close")
+            .on("click", function() {
+                clearSelection();
+            });
+    }
 
-            // add in the title for the nodes
-                node
-                .append("text")
-                    .attr("x", -6)
-                    .attr("y", function(d) { return d.dy / 2; })
-                    .attr("dy", ".35em")
-                    .attr("text-anchor", "end")
-                    .attr("transform", null)
-                    .text(function(d) { return d.name; })
-                .filter(function(d) { return d.x < width / 2; })
-                    .attr("x", 6 + sankey.nodeWidth())
-                    .attr("text-anchor", "start");
+    function appendMetadata(container, meta) {
+        var section = container.append("div");
+        section.append("div")
+            .attr("class", "card-section-title")
+            .text("Details");
+
+        if (meta.address) {
+            section.append("div")
+                .attr("class", "meta-row")
+                .html("<span>Address</span><br>" + meta.address);
+        }
+        if (meta.description) {
+            section.append("div")
+                .attr("class", "meta-row")
+                .text(meta.description);
+        }
+        if (meta.state) {
+            section.append("div")
+                .attr("class", "meta-row")
+                .html("<span>Status</span><br>" + meta.state);
+        }
+        if (meta.price) {
+            section.append("div")
+                .attr("class", "meta-row")
+                .html("<span>Price</span> " + meta.price);
+        }
+        if (meta.category && meta.category.length) {
+            section.append("div")
+                .attr("class", "meta-row")
+                .text("Categories");
+            var catList = section.append("div").attr("class", "meta-list");
+            meta.category.slice(0, 8).forEach(function(cat) {
+                catList.append("span")
+                    .attr("class", "meta-chip")
+                    .text(cat);
+            });
+        }
+        if (meta.hours && meta.hours.length) {
+            section.append("div")
+                .attr("class", "meta-row")
+                .text("Hours");
+            var table = section.append("table").attr("class", "hours-table");
+            meta.hours.forEach(function(entry) {
+                if (!entry || entry.length < 2) return;
+                var row = table.append("tr");
+                row.append("td").text(entry[0]);
+                row.append("td").text(entry[1]);
+            });
+        }
+        if (meta.misc) {
+            Object.keys(meta.misc).forEach(function(key) {
+                var values = meta.misc[key];
+                if (!values || !values.length) {
+                    return;
+                }
+                section.append("div")
+                    .attr("class", "meta-row")
+                    .text(key);
+                var list = section.append("div").attr("class", "meta-list");
+                values.slice(0, 6).forEach(function(item) {
+                    list.append("span")
+                        .attr("class", "meta-chip")
+                        .text(item);
+                });
+            });
+        }
+        if (meta.relative_results && meta.relative_results.length) {
+            section.append("div")
+                .attr("class", "meta-row")
+                .text("Similar places tracked: " + meta.relative_results.length);
+        }
+        if (meta.url) {
+            section.append("a")
+                .attr("class", "meta-link")
+                .attr("href", meta.url)
+                .attr("target", "_blank")
+                .text("View on Google Maps");
+        }
+        section.append("div").attr("class", "card-divider");
+    }
+
+    function fetchVenueDetails(businessIdx) {
+        if (venueDetailsCache[businessIdx]) {
+            if (selectedVenue && selectedVenue.business_idx === businessIdx) {
+                selectedVenue = venueDetailsCache[businessIdx];
+                renderVenueCard(selectedVenue);
+            }
+            return;
+        }
+        var statusNode = card.select("#meta-status");
+        if (!statusNode.empty()) {
+            statusNode.text("Loading detailed metadata…");
+        }
+        d3.json(API_BASE_URL + "/venues/" + businessIdx, function(error, data) {
+            if (error || !data) {
+                var status = card.select("#meta-status");
+                if (!status.empty()) {
+                    status.text("Metadata unavailable.");
+                }
+                return;
+            }
+            venueDetailsCache[businessIdx] = data;
+            venueById[businessIdx] = data;
+            if (selectedVenue && selectedVenue.business_idx === businessIdx) {
+                selectedVenue = data;
+                renderVenueCard(data);
+            }
         });
     }
 
-    function dragmove(d) {
-        d3.select(this)
-        .attr("transform",
-                "translate("
-                + d.x + ","
-                + (d.y = Math.max(
-                    0, Math.min(height - d.dy, d3.event.y))
-                    ) + ")");
-        sankey.relayout();
-        link.attr("d", sankey.link() );
+    function formatMaybe(value, fallback) {
+        if (value === null || value === undefined || value === "") {
+            return fallback;
+        }
+        if (typeof value === "number") {
+            return value.toFixed(1);
+        }
+        return value;
     }
 
+    function formatStatus(value) {
+        if (value === true) return "Closed";
+        if (value === false) return "Open";
+        return "Unknown";
+    }
+
+    function fetchPredictions(venue, button) {
+        if (!venue) return;
+        button.attr("disabled", true).text("Loading predictions…");
+        setPredictionStatus("Fetching predictions for " + venue.name + "…");
+        d3.json(API_BASE_URL + "/venues/" + venue.business_idx + "/predictions", function(error, payload) {
+            button.attr("disabled", null).text("Show top predictions");
+            if (error || !payload) {
+                setPredictionStatus("Unable to load predictions. Please try again.");
+                return;
+            }
+            if (payload.source) {
+                venueDetailsCache[payload.source.business_idx] = payload.source;
+                venueById[payload.source.business_idx] = payload.source;
+                selectedVenue = payload.source;
+                renderVenueCard(payload.source);
+                updateSelectedPin(payload.source);
+            }
+            var predictions = normalizePredictions(payload.predictions || []);
+            setPredictionStatus(predictions.length ? "Showing " + predictions.length + " predictions" : "No predictions found.");
+            var focusVenue = selectedVenue || venue;
+            drawPredictionLines(focusVenue, predictions);
+            renderPredictionList(predictions);
+            if (predictions.length) {
+                showOnlyPredictedMarkers(focusVenue.business_idx, predictions);
+                focusOnVenue(focusVenue);
+                updateSelectedPin(focusVenue);
+            }
+        });
+    }
+
+    function normalizePredictions(predictions) {
+        var cloned = predictions.slice();
+        cloned.sort(function(a, b) {
+            var rankA = a.rank != null ? a.rank : Number.MAX_VALUE;
+            var rankB = b.rank != null ? b.rank : Number.MAX_VALUE;
+            if (rankA !== rankB) {
+                return rankA - rankB;
+            }
+            return (b.score_share || 0) - (a.score_share || 0);
+        });
+        cloned.forEach(function(pred, index) {
+            pred.display_rank = index + 1;
+        });
+        return cloned;
+    }
+
+    function setPredictionStatus(text) {
+        card.select("#prediction-status").text(text || "");
+    }
+
+    function drawPredictionLines(source, predictions) {
+        predictionLayer.clearLayers();
+        destinationLayer.clearLayers();
+        if (!predictions.length) {
+            return;
+        }
+
+        var scoreExtent = d3.extent(predictions, function(d) {
+            return d.score_share || 0;
+        });
+        if (scoreExtent[0] === scoreExtent[1]) {
+            scoreExtent[0] = 0;
+        }
+        var colorScale = d3.scaleLinear()
+            .domain(scoreExtent)
+            .range(["#fef08a", "#ea580c"]);
+
+        predictions.forEach(function(pred) {
+            if (pred.dest_lat == null || pred.dest_lon == null) {
+                return;
+            }
+            var weight = scoreToWeight(pred);
+            var color = colorScale(pred.score_share || scoreExtent[0]);
+            var tierClass = pred.display_rank && pred.display_rank <= 3 ? "prediction-path strong" : "prediction-path weak";
+            var line = L.polyline(
+                [
+                    [source.lat, source.lon],
+                    [pred.dest_lat, pred.dest_lon]
+                ],
+                {
+                    color: color,
+                    weight: weight,
+                    opacity: 0.85,
+                    lineCap: "round",
+                    pane: 'predictionPane',
+                    className: tierClass
+                }
+            );
+            var tooltipText = (pred.display_rank || pred.rank || "?") + ". " + (pred.dest_name || "Unknown") + " • " + formatScore(pred.score_share);
+            line.bindTooltip(tooltipText, {sticky: true});
+            predictionLayer.addLayer(line);
+
+            var destMarker = L.circleMarker([pred.dest_lat, pred.dest_lon], {
+                radius: 5,
+                fillColor: "#fb923c",
+                color: "#9a3412",
+                weight: 1,
+                fillOpacity: 0.9
+            });
+            destMarker.bindTooltip((pred.dest_name || "Unknown") + " • " + formatScore(pred.score_share), {sticky: true});
+            destinationLayer.addLayer(destMarker);
+        });
+    }
+
+    function scoreToWeight(pred) {
+        if (pred.score_share != null) {
+            return 3 + Math.min(parseFloat(pred.score_share) * 14, 9);
+        }
+        var rank = pred.display_rank || pred.rank || MAX_PREDICTIONS;
+        return Math.max(6 - rank * 0.3, 2);
+    }
+
+    function formatScore(score) {
+        if (score === null || score === undefined) {
+            return "—";
+        }
+        var value = parseFloat(score) * 100;
+        if (isNaN(value)) {
+            return "—";
+        }
+        return value.toFixed(1) + "%";
+    }
+
+    function renderPredictionList(predictions) {
+        var container = card.select("#prediction-list");
+        container.selectAll("*").remove();
+        if (!predictions.length) {
+            container.append("div")
+                .attr("class", "empty-state")
+                .text("No connected venues for this location.");
+            return;
+        }
+
+        var rows = container.selectAll(".prediction-row")
+            .data(predictions, function(d) { return d.prediction_id; })
+            .enter()
+            .append("div")
+            .attr("class", "prediction-row");
+
+        rows.append("div")
+            .attr("class", "prediction-rank")
+            .text(function(d) { return d.display_rank || d.rank || "–"; });
+
+        var nameBlock = rows.append("div")
+            .attr("class", "prediction-name");
+        nameBlock.append("div")
+            .text(function(d) { return d.dest_name || "Unknown"; });
+        nameBlock.append("div")
+            .attr("class", "card-stat")
+            .text(function(d) {
+                var distance = d.link_distance_km ? parseFloat(d.link_distance_km).toFixed(1) + " km" : "—";
+                var info = (d.dest_category_main || "—") + " • " + distance;
+                if (d.dest_meta && d.dest_meta.address) {
+                    info += " • " + d.dest_meta.address;
+                }
+                return info;
+            });
+
+        rows.append("div")
+            .attr("class", "prediction-score")
+            .text(function(d) { return formatScore(d.score_share); });
+    }
+
+    function addMarker(venue) {
+        if (venue.lat == null || venue.lon == null) {
+            return;
+        }
+        var marker = L.circleMarker([venue.lat, venue.lon], DEFAULT_MARKER_STYLE);
+        marker.on("click", function() {
+            selectVenue(venue.business_idx);
+        });
+        marker.addTo(markerLayer);
+        markerById[venue.business_idx] = marker;
+    }
+
+    function hydrateVenues(data) {
+        venues = data.filter(function(item) {
+            return item.lat != null && item.lon != null;
+        });
+        venueById = {};
+        venues.forEach(function(venue) {
+            venueById[venue.business_idx] = venue;
+            addMarker(venue);
+        });
+        statusLabel.text("Type to search " + venues.length + " venues");
+        hideOverlay();
+    }
+
+    function loadVenues() {
+        d3.json(API_BASE_URL + "/venues", function(error, data) {
+            if (error || !data || !data.length) {
+                statusLabel.text("Unable to load venues. Start the API (uvicorn services.predictions_api:app).");
+                showOverlay(
+                    "Unable to load venues",
+                    "Start the FastAPI service (uvicorn services.predictions_api:app --port 9000) and refresh."
+                );
+                return;
+            }
+            hydrateVenues(data);
+        });
+    }
+
+    function clearSelection() {
+        selectedVenue = null;
+        card.style("display", "none");
+        resetPredictionLayers();
+        destinationLayer.clearLayers();
+        predictionLayer.clearLayers();
+        restoreAllMarkers();
+        if (selectedPinMarker) {
+            map.removeLayer(selectedPinMarker);
+            selectedPinMarker = null;
+        }
+    }
+
+    loadVenues();
 </script>
+</body>
+</html>
+</html>

@@ -58,3 +58,6 @@ src/data/verify_rebalanced_data.py
 src/utils/practical_metrics.py
 
 outputs/
+data/processed/predictions_cache/
+
+image/
