@@ -15,6 +15,13 @@ dash>=2.14.0            # The main framework for interactive dashboard (Phase D)
 dash-bootstrap-components>=1.5.0  # For better layout components
 plotly>=5.17.0          # Core plotting engine
 
+# --- API & Serving ---
+fastapi>=0.110.0
+uvicorn[standard]>=0.24.0
+duckdb>=0.10.0
+pandas>=2.1.0
+watchfiles>=0.21.0  # hot reload support for uvicorn --reload
+
 # --- Development & Utilities ---
 jupyterlab>=4.0.0       # For prototyping, EDA, and model development notebooks
 tqdm>=4.66.0            # For progress bars during long-running tasks
