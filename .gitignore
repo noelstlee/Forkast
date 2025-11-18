@@ -39,6 +39,7 @@ team15proposal.pdf
 .DS_Store
 Thumbs.db
 docs/
+data/
 
 DATA_REBALANCING_SUMMARY.md
 LSTM_PREDICTIONS_EXPLAINED.md
