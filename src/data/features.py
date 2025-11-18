@@ -1238,6 +1238,76 @@ def add_all_features(
     return pairs_df
 
 
+def sample_distance_matched_negative(
+    src_lat: float,
+    src_lon: float, 
+    src_distance_to_positive: float,
+    biz_dict: dict,
+    all_biz_ids: list,
+    src_id: str,
+    dst_id: str,
+    existing_negatives: set,
+    max_attempts: int = 50
+) -> tuple:
+    """
+    Sample negative with similar distance as positive sample (OPTIMIZED VERSION).
+    
+    Instead of checking ALL businesses, randomly sample candidates until we find
+    one in the right distance bucket. Much faster for large datasets.
+    
+    Args:
+        src_lat, src_lon: Source coordinates
+        src_distance_to_positive: Distance to actual positive destination
+        biz_dict: Dictionary of business information
+        all_biz_ids: List of all business IDs
+        src_id: Source business ID (to exclude)
+        dst_id: Actual destination ID (to exclude)
+        existing_negatives: Set of already sampled negative IDs
+        max_attempts: Maximum random samples to try (default: 50)
+    
+    Returns:
+        Tuple of (business_info_dict, distance) or (None, None) if no valid sample found
+    """
+    # Define distance bucket based on positive distance (more relaxed for speed)
+    if src_distance_to_positive < 5.0:
+        min_dist, max_dist = 0.0, 10.0
+    elif src_distance_to_positive < 15.0:
+        min_dist, max_dist = 5.0, 25.0
+    else:
+        min_dist, max_dist = 10.0, 100.0
+    
+    # Try random sampling instead of checking all businesses
+    for attempt in range(max_attempts):
+        # Randomly sample a business
+        candidate_id = random.choice(all_biz_ids)
+        
+        # Skip if invalid
+        if candidate_id == src_id or candidate_id == dst_id or candidate_id in existing_negatives:
+            continue
+        
+        # Calculate distance
+        biz_info = biz_dict[candidate_id]
+        dist = calculate_haversine_distance(
+            src_lat, src_lon, 
+            biz_info['lat'], biz_info['lon']
+        )
+        
+        # Check if in distance bucket
+        if min_dist <= dist <= max_dist:
+            return biz_info, dist
+    
+    # Fallback: just pick a random valid business (still better than the bug!)
+    fallback_candidates = [biz_id for biz_id in all_biz_ids 
+                          if biz_id != src_id and biz_id != dst_id and 
+                             biz_id not in existing_negatives]
+    if fallback_candidates:
+        selected_id = random.choice(fallback_candidates[:1000])  # Limit to first 1000 for speed
+        selected_info = biz_dict[selected_id]
+        return selected_info, 0.0  # Don't calculate distance for fallback
+    
+    return None, None
+
+
 def generate_negative_samples(
     pairs_df: pl.DataFrame,
     biz_df: pl.DataFrame,
@@ -1299,7 +1369,9 @@ def generate_negative_samples(
             'lat': row['lat'],
             'lon': row['lon'],
             'category': row['category_main'],
-            'relative_results': row['relative_results'] if row['relative_results'] else []
+            'relative_results': row['relative_results'] if row['relative_results'] else [],
+            'rating': row['avg_rating'] if 'avg_rating' in row else 3.5,
+            'price': row['price_bucket'] if 'price_bucket' in row else 1
         }
     
     all_biz_ids = list(biz_dict.keys())
@@ -1316,12 +1388,19 @@ def generate_negative_samples(
     
     # Generate negative samples
     print(f"\n[2/4] Generating {len(pairs_df) * n_negatives:,} negative samples...")
+    print(f"  (This will take ~{len(pairs_df) // 1000} minutes for {len(pairs_df):,} positive pairs)")
     
     negative_samples = []
     
+    import time
+    start_time = time.time()
+    
     for i, row in enumerate(pairs_df.iter_rows(named=True)):
-        if i % 10000 == 0 and i > 0:
-            print(f"  Progress: {i:,}/{len(pairs_df):,} ({i/len(pairs_df)*100:.1f}%)")
+        if i % 5000 == 0 and i > 0:
+            elapsed = time.time() - start_time
+            rate = i / elapsed
+            remaining = (len(pairs_df) - i) / rate
+            print(f"  Progress: {i:,}/{len(pairs_df):,} ({i/len(pairs_df)*100:.1f}%) - ETA: {remaining/60:.1f} min")
         
         src_id = row['src_gmap_id']
         dst_id = row['dst_gmap_id']  # The actual destination (to exclude)
@@ -1336,35 +1415,41 @@ def generate_negative_samples(
         
         # Generate n_negatives samples
         sampled_negatives = set()
+        sampled_neg_ids = set()  # Track IDs to avoid duplicates
         
-        # 1. Geographic negatives (within 10km)
+        # 1. Geographic negatives (simple random within 10km - FAST VERSION)
+        # This is much faster than distance-matched sampling while still being realistic
         for _ in range(n_geo):
             attempts = 0
-            while attempts < 50:  # Max attempts to find valid negative
-                candidate = random.choice(all_biz_ids)
-                if candidate != dst_id and candidate != src_id and candidate not in sampled_negatives:
-                    cand_info = biz_dict[candidate]
+            while attempts < 100:  # Max attempts to find valid negative
+                candidate_id = random.choice(all_biz_ids)
+                if candidate_id != dst_id and candidate_id != src_id and candidate_id not in sampled_neg_ids:
+                    cand_info = biz_dict[candidate_id]
+                    # Quick distance check (only calculate if within reasonable bounds)
                     dist = calculate_haversine_distance(src_lat, src_lon, cand_info['lat'], cand_info['lon'])
                     if dist <= 10.0:  # Within 10km
-                        sampled_negatives.add(candidate)
+                        sampled_neg_ids.add(candidate_id)
+                        sampled_negatives.add(candidate_id)
                         break
                 attempts += 1
         
         # 2. Relative results negatives
         if relative_results:
-            available_rel = [r for r in relative_results if r != dst_id and r in biz_dict]
+            available_rel = [r for r in relative_results if r != dst_id and r in biz_dict and r not in sampled_neg_ids]
             if available_rel:
                 n_sample = min(n_rel, len(available_rel))
                 sampled_rel = random.sample(available_rel, n_sample)
+                sampled_neg_ids.update(sampled_rel)
                 sampled_negatives.update(sampled_rel)
         
         # 3. Same category negatives
         if src_cat in category_businesses:
             available_cat = [b for b in category_businesses[src_cat] 
-                           if b != dst_id and b != src_id and b not in sampled_negatives]
+                           if b != dst_id and b != src_id and b not in sampled_neg_ids]
             if available_cat:
                 n_sample = min(n_cat, len(available_cat))
                 sampled_cat = random.sample(available_cat, n_sample)
+                sampled_neg_ids.update(sampled_cat)
                 sampled_negatives.update(sampled_cat)
         
         # Create negative pair entries with realistic timestamps
@@ -1394,6 +1479,10 @@ def generate_negative_samples(
             # Works for both Python datetime and Polars datetime objects
             dst_datetime = src_datetime + timedelta(hours=realistic_delta_hours)
             
+            # Look up actual destination rating and price from business data
+            dst_rating_value = neg_info.get('rating', 3.5)  # Use actual rating or fallback
+            dst_price_value = neg_info.get('price', 1)      # Use actual price or fallback
+            
             negative_samples.append({
                 'user_id': row['user_id'],
                 'src_gmap_id': src_id,
@@ -1408,7 +1497,8 @@ def generate_negative_samples(
                 'dst_lat': neg_info['lat'],
                 'dst_lon': neg_info['lon'],
                 'src_rating': row['src_rating'],
-                'dst_rating': 0,  # We don't have rating for negatives yet
+                'dst_rating': dst_rating_value,  # ✓ FIXED: Use actual rating
+                'dst_price': dst_price_value,    # ✓ ADDED: Include price
             })
     
     print(f"  ✓ Generated {len(negative_samples):,} negative samples")

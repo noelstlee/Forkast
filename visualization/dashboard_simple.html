@@ -1,0 +1,1412 @@
+<!-- Forkast interactive map powered by Leaflet + D3 - Dual Model Version -->
+<!DOCTYPE html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Forkast Venue Predictions</title>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.3.4/dist/leaflet.css" integrity="sha512-puBpdR0798OZvTTbP4A8Ix/l+A4dHDD0DGqYW6RQ+9jxkRFclaxxQb/SJAWZfWAkuyeQUytO7+7N4QKrDh+drA==" crossorigin=""/>
+<script src="https://d3js.org/d3.v4.js"></script>
+<script src="https://unpkg.com/leaflet@1.3.4/dist/leaflet.js" integrity="sha512-nMMmRyTVoLYqjP9hrbed9S+FzjZHW5gY1TWCHA5ckwXZBadntCNs8kEqAWdrb9O7rxbCaA4lKTIWjDXZxflOcA==" crossorigin=""></script>
+
+<body>
+<div id="logo"><span class="logo-text">Forkast</span></div>
+<div id="model-selector">
+    <button id="btn-lstm" class="active">Non-Atlanta(LSTM)</button>
+    <button id="btn-xgboost">Atlanta(XGBoost)</button>
+</div>
+<div id="searchInput"></div>
+<div id="mapid"></div>
+<div id="card"></div>
+<div id="legend">
+    <div class="legend-item"><span class="legend-dot"></span> Venues</div>
+    <div class="legend-item"><span class="legend-line legend-line-strong"></span> Higher score</div>
+    <div class="legend-item"><span class="legend-line legend-line-weak"></span> Lower score</div>
+</div>
+<div id="loading-overlay">
+    <div class="loading-card">
+        <div class="spinner"></div>
+        <div class="loading-text">Preparing data…</div>
+        <div class="loading-subtext">First launch may take up to a minute while predictions cache warms up.</div>
+    </div>
+</div>
+
+<style>
+    html, body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        width: 100%;
+        font-family: "Inter", "Helvetica Neue", Arial, sans-serif;
+        color: #1f2933;
+    }
+
+    #mapid { 
+        position: absolute;
+        top:0;
+        left:0;
+        right:0;
+        bottom:0;
+        width: 100vw;
+        height: 100vh;
+        z-index: 0;
+     }
+    
+    #logo {
+        position: absolute;
+        bottom: 12px;       
+        left: 12px;        
+        z-index: 1000; 
+        pointer-events: none;
+    }
+
+    #logo .logo-text {
+        font-size: 24px;
+        font-weight: 700;
+        letter-spacing: 1px;
+        color: #f97316;
+        text-shadow: 0 2px 10px rgba(15, 23, 42, 0.4);
+    }
+
+    #model-selector {
+        position: absolute;
+        top: 24px;
+        right: 32px;
+        z-index: 1000;
+        background-color: white;
+        padding: 4px;
+        border-radius: 8px;
+        box-shadow: 0 12px 24px rgba(15, 23, 42, 0.15);
+        display: flex;
+        gap: 8px;
+        border: 1px solid #e2e8f0;
+    }
+
+    #model-selector button {
+        border: none;
+        border-radius: 6px;
+        padding: 10px 20px;
+        background-color: transparent;
+        color: #64748b;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        min-width: 100px;
+    }
+
+    #model-selector button:hover {
+        background-color: #f1f5f9;
+        color: #475569;
+    }
+
+    #model-selector button.active {
+        background-color: #f97316;
+        color: white;
+        box-shadow: 0 2px 6px rgba(249, 115, 22, 0.3);
+    }
+
+    #searchInput {
+        position: absolute; 
+        top: 24px;       
+        left: 32px;        
+        z-index: 1000;
+        background-color: white;
+        padding: 16px;
+        border-radius: 8px;
+        box-shadow: 0 12px 24px rgba(15, 23, 42, 0.15);
+        width: 260px;
+        box-sizing: border-box;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    #searchInput input[type="text"] {
+        width: 100%;
+        padding: 8px 10px;
+        border-radius: 4px;
+        border: 1px solid #d1d5db;
+        font-size: 14px;
+        margin: 0;
+        box-sizing: border-box;
+    }
+
+    .search-status {
+        font-size: 12px;
+        color: #475569;
+        margin-bottom: 4px;
+    }
+
+    #suggestions {
+        max-height: 200px;
+        overflow-y: auto;
+    }
+
+    .suggestion-val {
+        padding: 6px 8px;
+        border-radius: 4px;
+        cursor: pointer;
+        transition: background-color 0.15s ease;
+    }
+
+    .suggestion-val:hover {
+        background-color: #fde68a;
+    }
+
+    #category-filters {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-top: 4px;
+        max-height: 120px;
+        overflow-y: auto;
+    }
+
+    .category-btn {
+        padding: 4px 10px;
+        border-radius: 12px;
+        border: 1px solid #d1d5db;
+        background-color: #f8fafc;
+        color: #475569;
+        font-size: 11px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.15s ease;
+        white-space: nowrap;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .category-color-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        display: inline-block;
+        flex-shrink: 0;
+    }
+
+    .category-btn:hover {
+        background-color: #f1f5f9;
+        border-color: #cbd5e1;
+    }
+
+    .category-btn.active {
+        background-color: #f97316;
+        color: white;
+        border-color: #f97316;
+        box-shadow: 0 2px 4px rgba(249, 115, 22, 0.3);
+    }
+        
+    #card {
+        position: absolute;
+        top: 24px; 
+        right: 32px;
+        z-index: 1000; 
+        background-color: white;
+        padding: 18px;
+        border-radius: 12px;
+        box-shadow: 0 20px 40px rgba(15, 23, 42, 0.18);
+        width: 320px;
+        display: none;
+        max-height: 85vh;
+        overflow-y: auto;
+        margin-top: 60px;  /* Make room for model selector */
+    }
+
+    #card h4 {
+        margin: 0;
+        font-size: 20px;
+        color: #1f2933;
+    }
+
+    .card-subtitle {
+        font-size: 14px;
+        color: #475569;
+        margin-bottom: 12px;
+    }
+
+    .card-stat {
+        font-size: 13px;
+        margin-bottom: 6px;
+    }
+
+    .highlight {
+        font-weight: 600;
+        color: #b45309;
+    }
+
+    .btn-primary {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        border: none;
+        border-radius: 6px;
+        padding: 10px 14px;
+        background-color: #f97316;
+        color: white;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        width: 100%;
+        margin-top: 4px;
+        transition: background-color 0.2s ease;
+    }
+
+    .btn-secondary {
+        margin-top: 8px;
+        width: 100%;
+        border: none;
+        border-radius: 6px;
+        padding: 9px 12px;
+        background-color: #e2e8f0;
+        color: #0f172a;
+        font-weight: 600;
+        cursor: pointer;
+    }
+
+    .btn-secondary:hover {
+        background-color: #cbd5f5;
+    }
+
+    .btn-primary:disabled {
+        background-color: #fbbf24;
+        cursor: progress;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+        background-color: #ea580c;
+    }
+
+    .prediction-status {
+        margin-top: 12px;
+        font-size: 13px;
+        color: #475569;
+    }
+
+    #prediction-list {
+        margin-top: 12px;
+        border-top: 1px solid #e2e8f0;
+        padding-top: 10px;
+    }
+
+    .prediction-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 8px 0;
+        border-bottom: 1px solid #f1f5f9;
+    }
+
+    .prediction-row:last-child {
+        border-bottom: none;
+    }
+
+    .prediction-rank {
+        width: 24px;
+        font-weight: 600;
+        color: #f97316;
+    }
+
+    .prediction-name {
+        flex: 1;
+        margin-left: 8px;
+        font-size: 13px;
+    }
+
+    .prediction-score {
+        font-weight: 600;
+        color: #0f172a;
+        font-size: 13px;
+        min-width: 48px;
+        text-align: right;
+    }
+
+    .empty-state {
+        padding: 16px;
+        text-align: center;
+        color: #94a3b8;
+        font-size: 13px;
+    }
+
+    #legend {
+        position: absolute;
+        bottom: 24px;
+        right: 32px;
+        background-color: rgba(255,255,255,0.95);
+        padding: 10px 14px;
+        border-radius: 8px;
+        box-shadow: 0 8px 20px rgba(15, 23, 42, 0.25);
+        z-index: 1000;
+        font-size: 12px;
+        color: #475569;
+    }
+
+    .legend-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 6px;
+    }
+
+    .legend-item:last-child {
+        margin-bottom: 0;
+    }
+
+    .legend-dot {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        display: inline-block;
+        background: #facc15;
+        border: 2px solid #b45309;
+        box-shadow: 0 0 4px rgba(250, 204, 21, 0.7);
+    }
+
+    .legend-line {
+        width: 24px;
+        height: 4px;
+        display: inline-block;
+        border-radius: 999px;
+        background: linear-gradient(90deg, #fde68a, #f97316);
+    }
+
+    .legend-line-strong {
+        background: linear-gradient(90deg, #fed7aa, #ea580c);
+        box-shadow: 0 0 6px rgba(234, 88, 12, 0.6);
+    }
+
+    .legend-line-weak {
+        background: linear-gradient(90deg, #fef3c7, #f59e0b);
+    }
+
+    #loading-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(255,255,255,0.92);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 2000;
+    }
+
+    .loading-card {
+        background: white;
+        border-radius: 12px;
+        padding: 24px 32px;
+        box-shadow: 0 30px 60px rgba(15, 23, 42, 0.25);
+        text-align: center;
+        max-width: 420px;
+    }
+
+    .spinner {
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        border: 4px solid #fde68a;
+        border-top-color: #f97316;
+        margin: 0 auto 12px;
+        animation: spin 1s linear infinite;
+    }
+
+    .loading-text {
+        font-weight: 600;
+        color: #0f172a;
+        margin-bottom: 6px;
+    }
+
+    .loading-subtext {
+        font-size: 13px;
+        color: #475569;
+    }
+
+    @keyframes spin {
+        to { transform: rotate(360deg); }
+    }
+
+    .leaflet-top.leaflet-left {
+        margin-top: 150px;
+        margin-left: 32px;
+    }
+
+    .card-section-title {
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: #94a3b8;
+        margin-top: 14px;
+        margin-bottom: 6px;
+    }
+
+    .meta-row {
+        font-size: 13px;
+        margin-bottom: 4px;
+        color: #1e293b;
+    }
+
+    .meta-row span {
+        color: #475569;
+    }
+
+    .meta-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+    }
+
+    .meta-chip {
+        background-color: #f1f5f9;
+        color: #334155;
+        border-radius: 999px;
+        padding: 2px 8px;
+        font-size: 11px;
+    }
+
+    .hours-table {
+        font-size: 12px;
+        color: #475569;
+        width: 100%;
+    }
+
+    .hours-table tr td:first-child {
+        width: 40%;
+        font-weight: 600;
+    }
+
+    .card-divider {
+        border-top: 1px solid #e2e8f0;
+        margin: 12px 0;
+    }
+
+    .meta-link {
+        color: #f97316;
+        font-size: 13px;
+        text-decoration: none;
+        font-weight: 600;
+    }
+
+    .meta-link:hover {
+        text-decoration: underline;
+    }
+
+    .selected-pin-wrapper {
+        pointer-events: none;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .selected-pin {
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        background: radial-gradient(circle at 30% 30%, #fecaca, #dc2626 70%);
+        box-shadow: 0 0 12px rgba(220, 38, 38, 0.8), 0 0 18px rgba(220, 38, 38, 0.45);
+        animation: pin-pulse 1.8s ease-in-out infinite;
+        position: relative;
+    }
+
+    .selected-pin::after {
+        content: "";
+        position: absolute;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #fff;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        box-shadow: 0 0 6px rgba(255, 255, 255, 0.9);
+    }
+
+    @keyframes pin-pulse {
+        0% {
+            transform: scale(0.95);
+            box-shadow: 0 0 12px rgba(220, 38, 38, 0.6);
+        }
+        50% {
+            transform: scale(1.1);
+            box-shadow: 0 0 18px rgba(220, 38, 38, 0.9);
+        }
+        100% {
+            transform: scale(0.95);
+            box-shadow: 0 0 12px rgba(220, 38, 38, 0.6);
+        }
+    }
+
+    .prediction-path {
+        stroke-linecap: round;
+        stroke-dasharray: 10 6;
+        animation: dash-move 2.6s linear infinite;
+        filter: drop-shadow(0 0 4px rgba(249, 115, 22, 0.65));
+    }
+
+    .prediction-path.strong {
+        stroke-dasharray: 12 5;
+        animation-duration: 1.8s;
+        filter: drop-shadow(0 0 6px rgba(234, 88, 12, 0.85));
+    }
+
+    .prediction-path.weak {
+        opacity: 0.7;
+        animation-duration: 3.2s;
+    }
+
+    @keyframes dash-move {
+        from {
+            stroke-dashoffset: 0;
+        }
+        to {
+            stroke-dashoffset: -120;
+        }
+    }
+</style>
+
+<script>
+    var DEFAULT_API_PORT = 9000;
+    var currentOrigin = window.location.origin;
+    var originWithoutPort = currentOrigin.replace(/:\d+$/, "");
+    var API_BASE_URL = window.API_BASE_URL || (originWithoutPort + ":" + DEFAULT_API_PORT);
+    var MAX_PREDICTIONS = 10;
+
+    var map = L
+        .map('mapid')
+        .setView([33.7490, -84.3880], 10);
+
+    map.createPane('predictionPane');
+    map.getPane('predictionPane').style.zIndex = 650;
+    map.createPane('selectedPinPane');
+    map.getPane('selectedPinPane').style.zIndex = 750;
+
+    L.tileLayer(
+        'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: 'Map data &copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a>',
+        maxZoom: 20,
+        minZoom: 5,
+        }).addTo(map);
+
+    var markerLayer = L.layerGroup().addTo(map);
+    var predictionLayer = L.layerGroup().addTo(map);
+    var destinationLayer = L.layerGroup().addTo(map);
+    var selectedPinMarker = null;
+
+    var venues = [];
+    var venueById = {};
+    var markerById = {};
+    var venueDetailsCache = {};
+    var activeMarker = null;
+    var selectedVenue = null;
+    var currentModel = "lstm";  // Default model
+    var isLoadingVenues = false;
+    var overlay = d3.select("#loading-overlay");
+    var selectedCategories = new Set();
+
+    function setOverlayMessage(message, subtext) {
+        overlay.select(".loading-text").text(message || "");
+        overlay.select(".loading-subtext").text(subtext || "");
+    }
+
+    function showOverlay(message, subtext) {
+        setOverlayMessage(message, subtext);
+        overlay.style("display", "flex");
+    }
+
+    function hideOverlay() {
+        overlay.style("display", "none");
+    }
+
+    showOverlay(
+        "Preparing data…",
+        "Loading venues from " + currentModel.toUpperCase() + " model..."
+    );
+
+    var searchContainer = d3.select("#searchInput");
+    var card = d3.select("#card");
+
+    var input = searchContainer.append("input")
+            .attr("type", "text")
+        .attr("placeholder", "Search venues...");
+
+    var statusLabel = searchContainer.append("div")
+        .attr("class", "search-status")
+        .text("Loading venues…");
+
+    var suggestions = searchContainer.append("div")
+        .attr("id", "suggestions");
+
+    var categoryFilters = searchContainer.append("div")
+        .attr("id", "category-filters");
+
+        input.on("input", function() {
+        var query = this.value.toLowerCase();
+        suggestions.selectAll('*').remove();
+        if (!query) {
+            return;
+        }
+        var matches = venues
+            .filter(function(item) {
+                return item.name && item.name.toLowerCase().includes(query);
+            })
+            .slice(0, 10);
+        if (!matches.length) {
+            suggestions.append("div")
+                .attr("class", "search-status")
+                .text("No matches");
+            return;
+        }
+        var items = suggestions.selectAll(".suggestion-val")
+            .data(matches, function(d) { return d.business_idx; });
+
+        items.exit().remove();
+
+        var enter = items.enter()
+            .append("div")
+            .attr("class", "suggestion-val")
+            .text(function(d) { return d.name; })
+                    .on("click", function(d) {
+                input.property("value", d.name);
+                suggestions.selectAll("*").remove();
+                selectVenue(d.business_idx);
+            });
+
+        items.merge(enter)
+            .text(function(d) { return d.name; });
+    });
+
+    function selectVenue(businessIdx) {
+        var venue = venueById[businessIdx];
+        if (!venue) {
+            return;
+        }
+        selectedVenue = venue;
+        focusOnVenue(venue);
+        updateSelectedPin(venue);
+        resetPredictionLayers();
+        restoreAllMarkers();
+        renderVenueCard(venue, {showMetaLoader: true});
+        fetchVenueDetails(businessIdx);
+    }
+
+    function focusOnVenue(venue) {
+        var panOffset = L.point(220, 0);
+        var loc = L.latLng(venue.lat, venue.lon);
+        var curr = map.project(loc, map.getZoom());
+        var target = curr.subtract(panOffset);
+        var targetLoc = map.unproject(target, map.getZoom());
+        map.panTo(targetLoc, {animate: true});
+        var marker = markerById[venue.business_idx];
+        highlightMarker(marker);
+    }
+
+    // Color palette for different categories
+    var CATEGORY_COLORS = [
+        { fill: "#facc15", border: "#b45309" }, // yellow (default)
+        { fill: "#3b82f6", border: "#1e40af" }, // blue
+        { fill: "#10b981", border: "#047857" }, // green
+        { fill: "#f97316", border: "#c2410c" }, // orange
+        { fill: "#8b5cf6", border: "#6d28d9" }, // purple
+        { fill: "#ec4899", border: "#be185d" }, // pink
+        { fill: "#06b6d4", border: "#0891b2" }, // cyan
+        { fill: "#84cc16", border: "#65a30d" }, // lime
+        { fill: "#f59e0b", border: "#d97706" }, // amber
+        { fill: "#ef4444", border: "#dc2626" }, // red
+        { fill: "#6366f1", border: "#4f46e5" }, // indigo
+        { fill: "#14b8a6", border: "#0d9488" }, // teal
+    ];
+
+    var categoryColorMap = {};
+
+    function getCategoryColor(category) {
+        if (!category) {
+            return CATEGORY_COLORS[0]; // default yellow
+        }
+        if (!categoryColorMap[category]) {
+            var index = Object.keys(categoryColorMap).length % CATEGORY_COLORS.length;
+            categoryColorMap[category] = CATEGORY_COLORS[index];
+        }
+        return categoryColorMap[category];
+    }
+
+    function getDefaultMarkerStyle(category) {
+        var colors = getCategoryColor(category);
+        return {
+            radius: 5,
+            fillColor: colors.fill,
+            color: colors.border,
+            weight: 1.5,
+            fillOpacity: 0.85,
+            opacity: 1
+        };
+    }
+
+    function getActiveMarkerStyle(category) {
+        var colors = getCategoryColor(category);
+        return {
+            radius: 8,
+            fillColor: colors.fill,
+            color: colors.border,
+            weight: 2.5,
+            fillOpacity: 0.95,
+            opacity: 1
+        };
+    }
+
+    var MUTED_MARKER_STYLE = {
+        radius: 4,
+        fillColor: "#facc15",
+        color: "#b45309",
+        weight: 1,
+        fillOpacity: 0,
+        opacity: 0
+    };
+
+    function applyMarkerStyle(marker, style) {
+        if (!marker) return;
+        marker.setStyle(style);
+    }
+
+    function highlightMarker(marker) {
+        if (!marker) return;
+        if (activeMarker) {
+            var shouldMute = activeMarker.options._muted;
+            if (shouldMute) {
+                applyMarkerStyle(activeMarker, MUTED_MARKER_STYLE);
+            } else {
+                var venue = venueById[activeMarker.options._businessIdx];
+                var category = venue ? venue.category_main : null;
+                applyMarkerStyle(activeMarker, getDefaultMarkerStyle(category));
+            }
+        }
+        var venue = venueById[marker.options._businessIdx];
+        var category = venue ? venue.category_main : null;
+        applyMarkerStyle(marker, getActiveMarkerStyle(category));
+        activeMarker = marker;
+    }
+
+    function resetPredictionLayers() {
+        predictionLayer.clearLayers();
+        destinationLayer.clearLayers();
+        var statusEl = card.select("#prediction-status");
+        if (!statusEl.empty()) {
+            statusEl.text("");
+        }
+        var listEl = card.select("#prediction-list");
+        if (!listEl.empty()) {
+            listEl.selectAll("*").remove();
+        }
+    }
+
+    function restoreAllMarkers() {
+        Object.values(markerById).forEach(function(marker) {
+            marker.options._muted = false;
+            var venue = venueById[marker.options._businessIdx];
+            if (venue) {
+                var category = venue.category_main;
+                applyMarkerStyle(marker, getDefaultMarkerStyle(category));
+            }
+        });
+        filterMarkersByCategory();
+        activeMarker = null;
+    }
+
+    function updateSelectedPin(venue) {
+        if (selectedPinMarker) {
+            map.removeLayer(selectedPinMarker);
+            selectedPinMarker = null;
+        }
+        if (!venue || venue.lat == null || venue.lon == null) {
+            return;
+        }
+        selectedPinMarker = L.marker([venue.lat, venue.lon], {
+            icon: L.divIcon({
+                className: "selected-pin-wrapper",
+                html: "<div class='selected-pin'></div>",
+                iconSize: [24, 24],
+                iconAnchor: [12, 12]
+            }),
+            pane: 'selectedPinPane'
+        }).addTo(map);
+    }
+
+    function showOnlyPredictedMarkers(sourceId, predictions) {
+        var allowed = new Set([sourceId]);
+        predictions.forEach(function(pred) {
+            if (pred.dest_business_idx != null) {
+                allowed.add(pred.dest_business_idx);
+            }
+        });
+        Object.entries(markerById).forEach(function(entry) {
+            var id = Number(entry[0]);
+            var marker = entry[1];
+            var venue = venueById[id];
+            var isAllowed = allowed.has(id);
+            marker.options._muted = !isAllowed;
+            if (isAllowed && venue) {
+                var category = venue.category_main;
+                applyMarkerStyle(marker, getDefaultMarkerStyle(category));
+            } else {
+                applyMarkerStyle(marker, MUTED_MARKER_STYLE);
+            }
+        });
+        highlightMarker(markerById[sourceId]);
+    }
+
+    function renderVenueCard(venue, options) {
+        options = options || {};
+        card.style("display", "block");
+        card.selectAll("*").remove();
+
+        card.append("h4").text(venue.name || "Unknown venue");
+        card.append("div")
+            .attr("class", "card-subtitle")
+            .text(venue.category_main || "Category unavailable");
+
+        var stats = card.append("div");
+        stats.append("div")
+            .attr("class", "card-stat")
+            .html("<span class='highlight'>Rating:</span> " + formatMaybe(venue.avg_rating, "Not rated"));
+        stats.append("div")
+            .attr("class", "card-stat")
+            .html("<span class='highlight'>Reviews:</span> " + formatMaybe(venue.num_reviews, "—"));
+        stats.append("div")
+            .attr("class", "card-stat")
+            .html("<span class='highlight'>Price:</span> " + (venue.price_bucket || "Unknown"));
+        stats.append("div")
+            .attr("class", "card-stat")
+            .html("<span class='highlight'>Status:</span> " + formatStatus(venue.is_closed));
+
+        var metaContainer = card.append("div").attr("id", "meta-container");
+        if (venue.meta) {
+            appendMetadata(metaContainer, venue.meta);
+        } else if (options.showMetaLoader) {
+            metaContainer.append("div")
+                .attr("class", "card-section-title")
+                .text("Details");
+            metaContainer.append("div")
+                .attr("class", "search-status")
+                .attr("id", "meta-status")
+                .text("Loading detailed metadata…");
+        } else {
+            metaContainer.append("div")
+                .attr("class", "search-status")
+                .text("Metadata unavailable for this venue.");
+        }
+
+        var button = card.append("button")
+            .attr("class", "btn-primary")
+            .text("Show top predictions")
+            .on("click", function() {
+                fetchPredictions(venue, button);
+            });
+
+        card.append("div")
+            .attr("class", "prediction-status")
+            .attr("id", "prediction-status");
+
+        card.append("div")
+            .attr("id", "prediction-list");
+
+        card.append("button")
+            .attr("class", "btn-secondary")
+            .text("Close")
+            .on("click", function() {
+                clearSelection();
+            });
+    }
+
+    function appendMetadata(container, meta) {
+        var section = container.append("div");
+        section.append("div")
+            .attr("class", "card-section-title")
+            .text("Details");
+
+        if (meta.address) {
+            section.append("div")
+                .attr("class", "meta-row")
+                .html("<span>Address</span><br>" + meta.address);
+        }
+        if (meta.description) {
+            section.append("div")
+                .attr("class", "meta-row")
+                .text(meta.description);
+        }
+        if (meta.state) {
+            section.append("div")
+                .attr("class", "meta-row")
+                .html("<span>Status</span><br>" + meta.state);
+        }
+        if (meta.price) {
+            section.append("div")
+                .attr("class", "meta-row")
+                .html("<span>Price</span> " + meta.price);
+        }
+        if (meta.category && meta.category.length) {
+            section.append("div")
+                .attr("class", "meta-row")
+                .text("Categories");
+            var catList = section.append("div").attr("class", "meta-list");
+            meta.category.slice(0, 8).forEach(function(cat) {
+                catList.append("span")
+                    .attr("class", "meta-chip")
+                    .text(cat);
+            });
+        }
+        if (meta.hours && meta.hours.length) {
+            section.append("div")
+                .attr("class", "meta-row")
+                .text("Hours");
+            var table = section.append("table").attr("class", "hours-table");
+            meta.hours.forEach(function(entry) {
+                if (!entry || entry.length < 2) return;
+                var row = table.append("tr");
+                row.append("td").text(entry[0]);
+                row.append("td").text(entry[1]);
+            });
+        }
+        if (meta.misc) {
+            Object.keys(meta.misc).forEach(function(key) {
+                var values = meta.misc[key];
+                if (!values || !values.length) {
+                    return;
+                }
+                section.append("div")
+                    .attr("class", "meta-row")
+                    .text(key);
+                var list = section.append("div").attr("class", "meta-list");
+                values.slice(0, 6).forEach(function(item) {
+                    list.append("span")
+                        .attr("class", "meta-chip")
+                        .text(item);
+                });
+            });
+        }
+        if (meta.relative_results && meta.relative_results.length) {
+            section.append("div")
+                .attr("class", "meta-row")
+                .text("Similar places tracked: " + meta.relative_results.length);
+        }
+        if (meta.url) {
+            section.append("a")
+                .attr("class", "meta-link")
+                .attr("href", meta.url)
+                .attr("target", "_blank")
+                .text("View on Google Maps");
+        }
+        section.append("div").attr("class", "card-divider");
+    }
+
+    function fetchVenueDetails(businessIdx) {
+        if (venueDetailsCache[businessIdx]) {
+            if (selectedVenue && selectedVenue.business_idx === businessIdx) {
+                selectedVenue = venueDetailsCache[businessIdx];
+                renderVenueCard(selectedVenue);
+            }
+            return;
+        }
+        var statusNode = card.select("#meta-status");
+        if (!statusNode.empty()) {
+            statusNode.text("Loading detailed metadata…");
+        }
+        d3.json(API_BASE_URL + "/venues/" + businessIdx + "?model=" + currentModel, function(error, data) {
+            if (error || !data) {
+                var status = card.select("#meta-status");
+                if (!status.empty()) {
+                    status.text("Metadata unavailable.");
+                }
+                return;
+            }
+            venueDetailsCache[businessIdx] = data;
+            venueById[businessIdx] = data;
+            if (selectedVenue && selectedVenue.business_idx === businessIdx) {
+                selectedVenue = data;
+                renderVenueCard(data);
+            }
+        });
+    }
+
+    function formatMaybe(value, fallback) {
+        if (value === null || value === undefined || value === "") {
+            return fallback;
+        }
+        if (typeof value === "number") {
+            return value.toFixed(1);
+        }
+        return value;
+    }
+
+    function formatStatus(value) {
+        if (value === true) return "Closed";
+        if (value === false) return "Open";
+        return "Unknown";
+    }
+
+    function fetchPredictions(venue, button) {
+        if (!venue) return;
+        button.attr("disabled", true).text("Loading predictions…");
+        var modelLabel = currentModel === "lstm" ? "LSTM" : "XGBoost";
+        setPredictionStatus("Fetching " + modelLabel + " predictions for " + venue.name + "…");
+
+        d3.json(API_BASE_URL + "/venues/" + venue.business_idx + "/predictions?model=" + currentModel, function(error, payload) {
+            button.attr("disabled", null).text("Show top predictions");
+            if (error || !payload) {
+                setPredictionStatus("Unable to load " + modelLabel + " predictions. Please try again.");
+                return;
+            }
+            if (payload.source) {
+                venueDetailsCache[payload.source.business_idx] = payload.source;
+                venueById[payload.source.business_idx] = payload.source;
+                selectedVenue = payload.source;
+                renderVenueCard(payload.source);
+                updateSelectedPin(payload.source);
+            }
+            var predictions = normalizePredictions(payload.predictions || []);
+            var statusText = predictions.length 
+                ? "Showing " + predictions.length + " " + modelLabel + " predictions"
+                : "No " + modelLabel + " predictions found.";
+            setPredictionStatus(statusText);
+            var focusVenue = selectedVenue || venue;
+            drawPredictionLines(focusVenue, predictions);
+            renderPredictionList(predictions);
+            if (predictions.length) {
+                showOnlyPredictedMarkers(focusVenue.business_idx, predictions);
+                focusOnVenue(focusVenue);
+                updateSelectedPin(focusVenue);
+            }
+        });
+    }
+
+    function normalizePredictions(predictions) {
+        var cloned = predictions.slice();
+        cloned.sort(function(a, b) {
+            var rankA = a.rank != null ? a.rank : Number.MAX_VALUE;
+            var rankB = b.rank != null ? b.rank : Number.MAX_VALUE;
+            if (rankA !== rankB) {
+                return rankA - rankB;
+            }
+            return (b.score_share || 0) - (a.score_share || 0);
+        });
+        cloned.forEach(function(pred, index) {
+            pred.display_rank = index + 1;
+        });
+        return cloned;
+    }
+
+    function setPredictionStatus(text) {
+        card.select("#prediction-status").text(text || "");
+    }
+
+    function drawPredictionLines(source, predictions) {
+        predictionLayer.clearLayers();
+        destinationLayer.clearLayers();
+        if (!predictions.length) {
+            return;
+        }
+
+        var scoreExtent = d3.extent(predictions, function(d) {
+            return d.score_share || 0;
+        });
+        if (scoreExtent[0] === scoreExtent[1]) {
+            scoreExtent[0] = 0;
+        }
+        var colorScale = d3.scaleLinear()
+            .domain(scoreExtent)
+            .range(["#fef08a", "#ea580c"]);
+
+        predictions.forEach(function(pred) {
+            if (pred.dest_lat == null || pred.dest_lon == null) {
+                return;
+            }
+            var weight = scoreToWeight(pred);
+            var color = colorScale(pred.score_share || scoreExtent[0]);
+            var tierClass = pred.display_rank && pred.display_rank <= 3 ? "prediction-path strong" : "prediction-path weak";
+            var line = L.polyline(
+                [
+                    [source.lat, source.lon],
+                    [pred.dest_lat, pred.dest_lon]
+                ],
+                {
+                    color: color,
+                    weight: weight,
+                    opacity: 0.85,
+                    lineCap: "round",
+                    pane: 'predictionPane',
+                    className: tierClass
+                }
+            );
+            var tooltipText = (pred.display_rank || pred.rank || "?") + ". " + (pred.dest_name || "Unknown") + " • " + formatScore(pred.score_share);
+            line.bindTooltip(tooltipText, {sticky: true});
+            predictionLayer.addLayer(line);
+
+            var destMarker = L.circleMarker([pred.dest_lat, pred.dest_lon], {
+                radius: 5,
+                fillColor: "#fb923c",
+                color: "#9a3412",
+                weight: 1,
+                fillOpacity: 0.9
+            });
+            destMarker.bindTooltip((pred.dest_name || "Unknown") + " • " + formatScore(pred.score_share), {sticky: true});
+            destinationLayer.addLayer(destMarker);
+        });
+    }
+
+    function scoreToWeight(pred) {
+        if (pred.score_share != null) {
+            return 3 + Math.min(parseFloat(pred.score_share) * 14, 9);
+        }
+        var rank = pred.display_rank || pred.rank || MAX_PREDICTIONS;
+        return Math.max(6 - rank * 0.3, 2);
+    }
+
+    function formatScore(score) {
+        if (score === null || score === undefined) {
+            return "—";
+        }
+        var value = parseFloat(score) * 100;
+        if (isNaN(value)) {
+            return "—";
+        }
+        return value.toFixed(1) + "%";
+    }
+
+    function renderPredictionList(predictions) {
+        var container = card.select("#prediction-list");
+        container.selectAll("*").remove();
+        if (!predictions.length) {
+            container.append("div")
+                .attr("class", "empty-state")
+                .text("No connected venues for this location.");
+            return;
+        }
+
+        var rows = container.selectAll(".prediction-row")
+            .data(predictions, function(d) { return d.prediction_id; })
+            .enter()
+            .append("div")
+            .attr("class", "prediction-row");
+
+        rows.append("div")
+            .attr("class", "prediction-rank")
+            .text(function(d) { return d.display_rank || d.rank || "–"; });
+
+        var nameBlock = rows.append("div")
+            .attr("class", "prediction-name");
+        nameBlock.append("div")
+            .text(function(d) { return d.dest_name || "Unknown"; });
+        nameBlock.append("div")
+            .attr("class", "card-stat")
+            .text(function(d) {
+                var distance = d.link_distance_km ? parseFloat(d.link_distance_km).toFixed(1) + " km" : "—";
+                var info = (d.dest_category_main || "—") + " • " + distance;
+                if (d.dest_meta && d.dest_meta.address) {
+                    info += " • " + d.dest_meta.address;
+                }
+                return info;
+            });
+
+        rows.append("div")
+            .attr("class", "prediction-score")
+            .text(function(d) { return formatScore(d.score_share); });
+    }
+
+    function addMarker(venue) {
+        if (venue.lat == null || venue.lon == null) {
+            return;
+        }
+        var style = getDefaultMarkerStyle(venue.category_main);
+        style._businessIdx = venue.business_idx; // Store business_idx for later retrieval
+        var marker = L.circleMarker([venue.lat, venue.lon], style);
+        marker.on("click", function() {
+            selectVenue(venue.business_idx);
+        });
+        marker.addTo(markerLayer);
+        markerById[venue.business_idx] = marker;
+    }
+
+    function buildCategoryButtons() {
+        var categories = new Set();
+        venues.forEach(function(venue) {
+            if (venue.category_main) {
+                categories.add(venue.category_main);
+            }
+        });
+        var sortedCategories = Array.from(categories).sort();
+        
+        categoryFilters.selectAll("*").remove();
+        
+        sortedCategories.forEach(function(cat) {
+            var colors = getCategoryColor(cat);
+            var btn = categoryFilters.append("button")
+                .attr("class", "category-btn")
+                .on("click", function() {
+                    toggleCategory(cat);
+                });
+            btn.append("span")
+                .attr("class", "category-color-dot")
+                .style("background-color", colors.fill)
+                .style("border", "1px solid " + colors.border);
+            btn.append("span")
+                .text(cat);
+        });
+    }
+
+    function toggleCategory(category) {
+        if (selectedCategories.has(category)) {
+            selectedCategories.delete(category);
+        } else {
+            selectedCategories.add(category);
+        }
+        updateCategoryButtons();
+        filterMarkersByCategory();
+    }
+
+    function updateCategoryButtons() {
+        categoryFilters.selectAll(".category-btn")
+            .classed("active", function() {
+                var btn = d3.select(this);
+                var categoryText = btn.select("span:last-child").text();
+                return selectedCategories.has(categoryText);
+            });
+    }
+
+    function filterMarkersByCategory() {
+        if (selectedCategories.size === 0) {
+            // Show all markers that aren't muted by prediction filtering
+            Object.values(markerById).forEach(function(marker) {
+                if (!marker.options._muted) {
+                    var venue = venueById[marker.options._businessIdx];
+                    var category = venue ? venue.category_main : null;
+                    applyMarkerStyle(marker, getDefaultMarkerStyle(category));
+                }
+            });
+            return;
+        }
+        
+        // Hide markers that don't match selected categories
+        // But preserve _muted state from prediction filtering
+        Object.entries(markerById).forEach(function(entry) {
+            var id = Number(entry[0]);
+            var marker = entry[1];
+            var venue = venueById[id];
+            
+            if (!venue) {
+                return;
+            }
+            
+            var shouldShow = venue.category_main && selectedCategories.has(venue.category_main);
+            var isMutedByPrediction = marker.options._muted;
+            
+            // Only apply category filtering if not already muted by prediction filtering
+            if (!isMutedByPrediction) {
+                if (shouldShow) {
+                    var category = venue.category_main;
+                    applyMarkerStyle(marker, getDefaultMarkerStyle(category));
+                } else {
+                    applyMarkerStyle(marker, MUTED_MARKER_STYLE);
+                }
+            }
+        });
+    }
+
+    function hydrateVenues(data) {
+        venues = data.filter(function(item) {
+            return item.lat != null && item.lon != null;
+        });
+        venueById = {};
+        markerById = {};
+        markerLayer.clearLayers();
+        venues.forEach(function(venue) {
+            venueById[venue.business_idx] = venue;
+            addMarker(venue);
+        });
+        buildCategoryButtons();
+        selectedCategories.clear();
+        filterMarkersByCategory();
+        var modelLabel = currentModel === "lstm" ? "LSTM" : "XGBoost";
+        statusLabel.text("Type to search " + venues.length + " " + modelLabel + " venues");
+        hideOverlay();
+        isLoadingVenues = false;
+    }
+
+    function loadVenues(model) {
+        if (isLoadingVenues) return;
+        isLoadingVenues = true;
+        
+        model = model || currentModel;
+        var modelLabel = model === "lstm" ? "LSTM" : "XGBoost";
+        
+        showOverlay(
+            "Loading " + modelLabel + " venues…",
+            "Please wait..."
+        );
+        statusLabel.text("Loading " + modelLabel + " venues…");
+
+        d3.json(API_BASE_URL + "/venues?model=" + model, function(error, data) {
+            if (error || !data || !data.length) {
+                statusLabel.text("Unable to load " + modelLabel + " venues. Start the API.");
+                showOverlay(
+                    "Unable to load venues",
+                    "Start the FastAPI service (uvicorn services.predictions_api_simple:app --port 9000) and refresh."
+                );
+                isLoadingVenues = false;
+                return;
+            }
+            hydrateVenues(data);
+        });
+    }
+
+    function switchModel(newModel) {
+        if (currentModel === newModel || isLoadingVenues) return;
+        
+        currentModel = newModel;
+        
+        // Update button states
+        d3.select("#btn-lstm").classed("active", currentModel === "lstm");
+        d3.select("#btn-xgboost").classed("active", currentModel === "xgboost");
+        
+        // Clear selection and predictions
+        clearSelection();
+        
+        // Clear category filters and color map
+        selectedCategories.clear();
+        categoryFilters.selectAll("*").remove();
+        categoryColorMap = {};
+        
+        // Reload venues for the new model
+        loadVenues(currentModel);
+    }
+
+    function clearSelection() {
+        selectedVenue = null;
+        card.style("display", "none");
+        resetPredictionLayers();
+        destinationLayer.clearLayers();
+        predictionLayer.clearLayers();
+        restoreAllMarkers();
+        if (selectedPinMarker) {
+            map.removeLayer(selectedPinMarker);
+            selectedPinMarker = null;
+        }
+    }
+
+    // Set up model selector button handlers
+    d3.select("#btn-lstm").on("click", function() {
+        switchModel("lstm");
+    });
+
+    d3.select("#btn-xgboost").on("click", function() {
+        switchModel("xgboost");
+    });
+
+    // Initialize with LSTM model
+    loadVenues();
+</script>
+</body>
+</html>
+
+
+

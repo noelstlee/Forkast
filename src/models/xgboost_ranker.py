@@ -132,6 +132,129 @@ BOOLEAN_FEATURES = [
 ALL_BASE_FEATURES = NUMERICAL_FEATURES + BOOLEAN_FEATURES
 
 
+def create_interaction_features(df: pl.DataFrame) -> pl.DataFrame:
+    """
+    Create interaction features to capture relationships between different aspects.
+    
+    These interaction features help the model learn complex patterns like:
+    - Distance × Rating interaction (nearby high-rated places)
+    - Price × Category interaction (expensive sushi vs cheap burger)
+    - Time × Service options (late night delivery)
+    - User preferences × Restaurant attributes
+    
+    Args:
+        df: Input DataFrame with base features
+        
+    Returns:
+        DataFrame with additional interaction features
+    """
+    print("  🔗 Creating interaction features...")
+    
+    interactions = []
+    
+    # Distance × Quality: Nearby high-rated restaurants
+    if 'distance_km' in df.columns and 'dst_rating' in df.columns:
+        interactions.append(
+            (pl.col('distance_km') * pl.col('dst_rating')).alias('distance_x_dst_rating')
+        )
+        interactions.append(
+            (pl.col('distance_km') * pl.col('rating_diff')).alias('distance_x_rating_diff')
+        )
+    
+    # Price × Quality: Value proposition
+    if 'dst_price' in df.columns and 'dst_rating' in df.columns:
+        interactions.append(
+            (pl.col('dst_price') * pl.col('dst_rating')).alias('price_x_rating')
+        )
+    
+    # Time × Distance: Temporal proximity
+    if 'delta_hours' in df.columns and 'distance_km' in df.columns:
+        interactions.append(
+            (pl.col('delta_hours') * pl.col('distance_km')).alias('time_x_distance')
+        )
+    
+    # User preferences × Restaurant attributes
+    if 'user_avg_rating' in df.columns and 'dst_rating' in df.columns:
+        interactions.append(
+            (pl.col('user_avg_rating') * pl.col('dst_rating')).alias('user_pref_x_dst_rating')
+        )
+    
+    if 'user_price_preference' in df.columns and 'dst_price' in df.columns:
+        interactions.append(
+            (pl.col('user_price_preference') * pl.col('dst_price')).alias('user_price_pref_x_dst_price')
+        )
+    
+    # Sentiment × Quality
+    if 'src_sentiment_score' in df.columns and 'dst_sentiment_score' in df.columns:
+        interactions.append(
+            (pl.col('src_sentiment_score') * pl.col('dst_sentiment_score')).alias('sentiment_match_score')
+        )
+    
+    # Category match × Distance (same category nearby)
+    if 'same_category' in df.columns and 'distance_km' in df.columns:
+        interactions.append(
+            (pl.col('same_category').cast(pl.Float32) * pl.col('distance_km')).alias('same_cat_x_distance')
+        )
+    
+    # Rating upgrade × Distance (worth traveling for better place)
+    if 'is_rating_upgrade' in df.columns and 'distance_km' in df.columns:
+        interactions.append(
+            (pl.col('is_rating_upgrade').cast(pl.Float32) * pl.col('distance_km')).alias('rating_upgrade_x_distance')
+        )
+    
+    # User diversity × Category difference
+    if 'user_cuisine_diversity' in df.columns and 'same_category' in df.columns:
+        interactions.append(
+            (pl.col('user_cuisine_diversity') * (1 - pl.col('same_category').cast(pl.Float32))).alias('diversity_x_different_cat')
+        )
+    
+    # Service match × Time
+    if 'service_match' in df.columns and 'delta_hours' in df.columns:
+        interactions.append(
+            (pl.col('service_match').cast(pl.Float32) * pl.col('delta_hours')).alias('service_match_x_time')
+        )
+    
+    # Relative results × Distance (Google recommendations nearby)
+    if 'is_in_relative_results' in df.columns and 'distance_km' in df.columns:
+        interactions.append(
+            (pl.col('is_in_relative_results').cast(pl.Float32) * (1 / (pl.col('distance_km') + 0.1))).alias('relative_results_proximity')
+        )
+    
+    # Add polynomial features for key metrics (squared terms capture non-linear relationships)
+    if 'distance_km' in df.columns:
+        interactions.append(
+            (pl.col('distance_km') ** 2).alias('distance_km_squared')
+        )
+    
+    if 'delta_hours' in df.columns:
+        interactions.append(
+            (pl.col('delta_hours') ** 2).alias('delta_hours_squared')
+        )
+    
+    if 'rating_diff' in df.columns:
+        interactions.append(
+            (pl.col('rating_diff') ** 2).alias('rating_diff_squared')
+        )
+    
+    # Ratio features (capture relative differences)
+    if 'dst_rating' in df.columns and 'src_rating' in df.columns:
+        interactions.append(
+            (pl.col('dst_rating') / (pl.col('src_rating') + 0.1)).alias('rating_ratio')
+        )
+    
+    if 'dst_price' in df.columns and 'src_price' in df.columns:
+        interactions.append(
+            (pl.col('dst_price') / (pl.col('src_price') + 0.1)).alias('price_ratio')
+        )
+    
+    # Add interactions if we have the base features
+    if interactions:
+        df = df.with_columns(interactions)
+        print(f"    Added {len(interactions)} interaction features")
+    
+    return df
+
+
 def load_data(data_dir: Path) -> Tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame]:
     """
     Load train, validation, and test data.
@@ -173,7 +296,7 @@ def load_data(data_dir: Path) -> Tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame]
 
 def prepare_ranking_data(df: pl.DataFrame) -> Tuple[np.ndarray, np.ndarray, np.ndarray, List[str]]:
     """
-    Prepare data for XGBoost ranking (group by source business).
+    Prepare data for XGBoost ranking (group by source business) with interaction features.
 
     In ranking problems, we need to:
     1. Group candidates by query (src_gmap_id)
@@ -190,10 +313,34 @@ def prepare_ranking_data(df: pl.DataFrame) -> Tuple[np.ndarray, np.ndarray, np.n
         - group_sizes: Number of candidates per query (for ranking)
         - feature_names: List of feature column names
     """
-    print("\n[Preparing ranking data...]")
+    print("\n[Preparing ranking data with interaction features...]")
 
     # Sort by source business to group queries together
     df = df.sort(['src_gmap_id', 'src_ts'])
+    
+    # DIAGNOSTIC: Check columns before creating interaction features
+    print(f"\n  🔍 DIAGNOSTIC: Columns before create_interaction_features: {len(df.columns)}")
+    
+    # Create interaction features
+    df = create_interaction_features(df)
+    
+    # DIAGNOSTIC: Check columns after creating interaction features
+    print(f"  🔍 DIAGNOSTIC: Columns after create_interaction_features: {len(df.columns)}")
+    interaction_cols = [col for col in df.columns 
+                       if any(s in col for s in ['_x_', '_squared', '_ratio', '_proximity', '_match_score'])]
+    print(f"  🔍 DIAGNOSTIC: Found {len(interaction_cols)} interaction columns")
+    if len(interaction_cols) > 0:
+        print(f"  🔍 DIAGNOSTIC: Examples: {interaction_cols[:5]}")
+        # Check variance to ensure features have meaningful values
+        for col in interaction_cols[:5]:
+            col_mean = df[col].mean()
+            col_std = df[col].std()
+            col_min = df[col].min()
+            col_max = df[col].max()
+            print(f"      {col}: mean={col_mean:.4f}, std={col_std:.4f}, range=[{col_min:.4f}, {col_max:.4f}]")
+    else:
+        print(f"  ⚠️  WARNING: No interaction features created!")
+        print(f"      Available columns (first 20): {df.columns[:20]}")
 
     # One-hot encode categorical features
     print("  - One-hot encoding categorical features...")
@@ -204,11 +351,19 @@ def prepare_ranking_data(df: pl.DataFrame) -> Tuple[np.ndarray, np.ndarray, np.n
         dummies = df_encoded.select(pl.col(cat_feature)).to_dummies()
         df_encoded = pl.concat([df_encoded, dummies], how="horizontal")
 
-    # Get all feature column names (base + one-hot encoded)
-    feature_cols = ALL_BASE_FEATURES + [col for col in df_encoded.columns
+    # Get all feature column names (base + interaction + one-hot encoded)
+    # Interaction features have specific suffixes
+    interaction_suffixes = ['_x_', '_squared', '_ratio', '_proximity', '_match_score']
+    interaction_features = [col for col in df_encoded.columns 
+                           if any(suffix in col for suffix in interaction_suffixes)]
+    
+    feature_cols = ALL_BASE_FEATURES + interaction_features + [col for col in df_encoded.columns
                                         if any(col.startswith(cat + '_') for cat in CATEGORICAL_FEATURES)]
 
     print(f"  - Total features after encoding: {len(feature_cols)}")
+    print(f"    Base features: {len(ALL_BASE_FEATURES)}")
+    print(f"    Interaction features: {len(interaction_features)}")
+    print(f"    One-hot encoded: {len(feature_cols) - len(ALL_BASE_FEATURES) - len(interaction_features)}")
 
     # Extract features
     X = df_encoded.select(feature_cols).to_numpy().astype(np.float32)
@@ -231,7 +386,7 @@ def train_xgboost_ranker(X_train: np.ndarray, y_train: np.ndarray, group_train: 
                          X_val: np.ndarray, y_val: np.ndarray, group_val: np.ndarray,
                          params: Dict = None) -> xgb.Booster:
     """
-    Train XGBoost ranking model.
+    Train XGBoost ranking model with enhanced parameters for better feature learning.
 
     Args:
         X_train, y_train, group_train: Training data
@@ -242,10 +397,10 @@ def train_xgboost_ranker(X_train: np.ndarray, y_train: np.ndarray, group_train: 
         Trained XGBoost model
     """
     print("\n" + "=" * 80)
-    print("TRAINING XGBOOST RANKER")
+    print("TRAINING ENHANCED XGBOOST RANKER")
     print("=" * 80)
 
-    # Default parameters for ranking
+    # Default parameters for ranking with improved feature interaction capture
     if params is None:
         # Auto-detect GPU availability
         try:
@@ -261,16 +416,22 @@ def train_xgboost_ranker(X_train: np.ndarray, y_train: np.ndarray, group_train: 
         params = {
             'objective': 'rank:pairwise',  # Pairwise ranking objective
             'eval_metric': ['ndcg@10', 'map@10'],  # Ranking metrics
-            'eta': 0.1,                    # Learning rate
-            'max_depth': 6,                # Tree depth
-            'min_child_weight': 1,
-            'subsample': 0.8,              # Row sampling
-            'colsample_bytree': 0.8,       # Column sampling
-            'lambda': 1.0,                 # L2 regularization
-            'alpha': 0.1,                  # L1 regularization
+            'eta': 0.05,                   # Lower learning rate for better feature learning
+            'max_depth': 8,                # Deeper trees to capture interactions
+            'min_child_weight': 3,         # Slightly higher to prevent overfitting
+            'subsample': 0.7,              # More aggressive row sampling
+            'colsample_bytree': 0.7,       # More aggressive column sampling per tree
+            'colsample_bylevel': 0.7,      # Column sampling per level (NEW)
+            'colsample_bynode': 0.7,       # Column sampling per split (NEW)
+            'gamma': 0.1,                  # Minimum loss reduction (NEW - encourages pruning)
+            'lambda': 2.0,                 # Increased L2 regularization
+            'alpha': 0.5,                  # Increased L1 regularization
+            'scale_pos_weight': 3.0,       # Weight positive samples more (NEW)
             'seed': 42,
             'tree_method': 'hist',         # Fast histogram-based algorithm
-            'device': device               # Auto-detected: 'cuda' or 'cpu'
+            'device': device,              # Auto-detected: 'cuda' or 'cpu'
+            'interaction_constraints': None,  # Allow all feature interactions
+            'max_leaves': 0                # No limit on leaves (use max_depth instead)
         }
 
     print("\nModel parameters:")
@@ -334,17 +495,25 @@ def predict_ranking(model: xgb.Booster, df: pl.DataFrame, top_k: int = 10) -> pl
 
     # Sort by source business
     df = df.sort(['src_gmap_id', 'src_ts'])
+    
+    # Create interaction features
+    print("\nCreating interaction features...")
+    df = create_interaction_features(df)
 
     # One-hot encode categorical features (same as training)
-    print("\nEncoding features and predicting...")
+    print("Encoding features and predicting...")
     df_encoded = df.clone()
 
     for cat_feature in CATEGORICAL_FEATURES:
         dummies = df_encoded.select(pl.col(cat_feature)).to_dummies()
         df_encoded = pl.concat([df_encoded, dummies], how="horizontal")
 
-    # Get all feature column names
-    feature_cols = ALL_BASE_FEATURES + [col for col in df_encoded.columns
+    # Get all feature column names (same as prepare_ranking_data)
+    interaction_suffixes = ['_x_', '_squared', '_ratio', '_proximity', '_match_score']
+    interaction_features = [col for col in df_encoded.columns 
+                           if any(suffix in col for suffix in interaction_suffixes)]
+    
+    feature_cols = ALL_BASE_FEATURES + interaction_features + [col for col in df_encoded.columns
                                         if any(col.startswith(cat + '_') for cat in CATEGORICAL_FEATURES)]
 
     # Get features and predict
@@ -506,6 +675,178 @@ def evaluate_ranking(predictions_df: pl.DataFrame, k_values: List[int] = [1, 5, 
     return metrics
 
 
+def export_predictions_for_visualization(predictions_df: pl.DataFrame, biz_df: pl.DataFrame, 
+                                         output_path: Path, top_k: int = 5) -> None:
+    """
+    Export predictions in format compatible with visualization API (similar to LSTM format).
+    
+    Creates a CSV with columns similar to LSTM visualization format:
+    - source_business_idx, source_gmap_id, source_name, source_lat, source_lon, etc.
+    - prediction_id, rank, score_raw, score_share, score_cum_share, score_z
+    - dest_business_idx, dest_gmap_id, dest_name, dest_lat, dest_lon, etc.
+    - link_distance_km, same_main_category
+    
+    Args:
+        predictions_df: Predictions DataFrame with scores and ranks
+        biz_df: Business metadata DataFrame
+        output_path: Path to save CSV file
+        top_k: Number of top predictions per source (default: 5)
+    """
+    print("\n" + "=" * 80)
+    print(f"EXPORTING TOP-{top_k} PREDICTIONS FOR VISUALIZATION")
+    print("=" * 80)
+    
+    # Filter to top-K predictions per source
+    print(f"\n[1/4] Filtering to top-{top_k} predictions per source...")
+    viz_df = predictions_df.filter(pl.col('rank') <= top_k)
+    
+    # Create business index mapping
+    print(f"[2/4] Creating business index mapping...")
+    biz_indexed = biz_df.with_columns([
+        pl.col('gmap_id').rank('dense').alias('business_idx')
+    ])
+    
+    # Join source business data
+    print(f"[3/4] Joining source business metadata...")
+    # Convert category_all list to string for CSV compatibility
+    biz_for_join = biz_indexed.with_columns([
+        pl.when(pl.col('category_all').is_not_null())
+        .then(pl.col('category_all').list.join(", "))
+        .otherwise(pl.lit(None))
+        .alias('category_all_str')
+    ])
+    
+    viz_df = viz_df.join(
+        biz_for_join.select([
+            pl.col('gmap_id').alias('src_gmap_id'),
+            pl.col('business_idx').alias('source_business_idx'),
+            pl.col('name').alias('source_name'),
+            pl.col('lat').alias('source_lat'),
+            pl.col('lon').alias('source_lon'),
+            pl.col('category_main').alias('source_category_main'),
+            pl.col('category_all_str').alias('source_category_all'),
+            pl.col('avg_rating').alias('source_avg_rating'),
+            pl.col('num_reviews').alias('source_num_reviews'),
+            pl.col('price_bucket').alias('source_price_bucket'),
+            pl.col('is_closed').alias('source_is_closed')
+        ]),
+        on='src_gmap_id',
+        how='left'
+    )
+    
+    # Join destination business data
+    print(f"[4/4] Joining destination business metadata...")
+    viz_df = viz_df.join(
+        biz_for_join.select([
+            pl.col('gmap_id').alias('dst_gmap_id'),
+            pl.col('business_idx').alias('dest_business_idx'),
+            pl.col('name').alias('dest_name'),
+            pl.col('lat').alias('dest_lat'),
+            pl.col('lon').alias('dest_lon'),
+            pl.col('category_main').alias('dest_category_main'),
+            pl.col('category_all_str').alias('dest_category_all'),
+            pl.col('avg_rating').alias('dest_avg_rating'),
+            pl.col('num_reviews').alias('dest_num_reviews'),
+            pl.col('price_bucket').alias('dest_price_bucket'),
+            pl.col('is_closed').alias('dest_is_closed')
+        ]),
+        on='dst_gmap_id',
+        how='left'
+    )
+    
+    # Calculate normalized scores per source (for score_share, score_cum_share, score_z)
+    print(f"\nCalculating normalized prediction scores...")
+    viz_df = viz_df.with_columns([
+        pl.col('score').alias('score_raw'),
+        # Score share: proportion of total score for this source
+        (pl.col('score') / pl.col('score').sum().over('src_gmap_id')).alias('score_share'),
+        # Score Z-score: standardized score within source
+        ((pl.col('score') - pl.col('score').mean().over('src_gmap_id')) / 
+         pl.col('score').std().over('src_gmap_id')).alias('score_z')
+    ])
+    
+    # Cumulative share
+    viz_df = viz_df.sort(['src_gmap_id', 'rank']).with_columns([
+        pl.col('score_share').cum_sum().over('src_gmap_id').alias('score_cum_share')
+    ])
+    
+    # Create prediction_id
+    viz_df = viz_df.with_columns([
+        pl.arange(0, pl.count()).alias('prediction_id')
+    ])
+    
+    # Add link_distance_km (use existing distance_km if available)
+    if 'distance_km' in viz_df.columns:
+        viz_df = viz_df.rename({'distance_km': 'link_distance_km'})
+    else:
+        viz_df = viz_df.with_columns([
+            pl.lit(None).alias('link_distance_km')
+        ])
+    
+    # Select final columns in visualization format
+    final_columns = [
+        # Prediction info
+        'prediction_id', 'rank', 'score_raw', 'score_share', 'score_cum_share', 'score_z',
+        
+        # Source business
+        'source_business_idx', 'src_gmap_id', 'source_name', 
+        'source_lat', 'source_lon', 'source_category_main', 'source_category_all',
+        'source_avg_rating', 'source_num_reviews', 'source_price_bucket', 'source_is_closed',
+        
+        # Destination business  
+        'dest_business_idx', 'dst_gmap_id', 'dest_name',
+        'dest_lat', 'dest_lon', 'dest_category_main', 'dest_category_all',
+        'dest_avg_rating', 'dest_num_reviews', 'dest_price_bucket', 'dest_is_closed',
+        
+        # Link properties
+        'link_distance_km', 'same_category'
+    ]
+    
+    # Keep only columns that exist
+    existing_columns = [col for col in final_columns if col in viz_df.columns]
+    
+    # Handle same_category (rename if needed)
+    if 'same_main_category' not in viz_df.columns and 'same_category' in viz_df.columns:
+        viz_df = viz_df.rename({'same_category': 'same_main_category'})
+        existing_columns = [col if col != 'same_category' else 'same_main_category' for col in existing_columns]
+    
+    viz_df = viz_df.select(existing_columns)
+    
+    # Save to CSV
+    print(f"\nSaving predictions...")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    # Ensure all columns are CSV-compatible (no nested types)
+    # Convert any remaining list/struct columns to strings
+    for col in viz_df.columns:
+        dtype = viz_df[col].dtype
+        if dtype == pl.List or str(dtype).startswith('List'):
+            viz_df = viz_df.with_columns([
+                pl.when(pl.col(col).is_not_null())
+                .then(pl.col(col).list.join(", "))
+                .otherwise(pl.lit(None))
+                .alias(col)
+            ])
+        elif dtype == pl.Struct or str(dtype).startswith('Struct'):
+            viz_df = viz_df.with_columns([
+                pl.col(col).cast(pl.Utf8).alias(col)
+            ])
+    
+    viz_df.write_csv(output_path)
+    
+    print(f"✓ Exported {len(viz_df):,} predictions")
+    print(f"  Unique sources: {viz_df['source_business_idx'].n_unique():,}")
+    print(f"  File: {output_path}")
+    print(f"  Size: {output_path.stat().st_size / 1024 / 1024:.1f} MB")
+    
+    # Print sample
+    print(f"\nSample predictions (first source):")
+    sample = viz_df.head(min(5, len(viz_df)))
+    print(sample.select([
+        'source_name', 'rank', 'dest_name', 'score_raw', 'score_share', 'link_distance_km'
+    ]))
+
+
 def analyze_feature_importance(model: xgb.Booster, feature_names: List[str]) -> Dict:
     """
     Extract and analyze feature importance for interpretability.
@@ -521,8 +862,24 @@ def analyze_feature_importance(model: xgb.Booster, feature_names: List[str]) -> 
     print("FEATURE IMPORTANCE ANALYSIS")
     print("=" * 80)
     
-    # Extract importance scores
-    importance_scores = model.get_score(importance_type='gain')
+    # Extract importance scores (XGBoost uses f0, f1, f2... internally)
+    xgb_importance_scores = model.get_score(importance_type='gain')
+    
+    # Map XGBoost's internal feature names (f0, f1, f2...) back to our actual names
+    importance_scores = {}
+    for xgb_feature_name, score in xgb_importance_scores.items():
+        # Check if it's an internal name (f0, f1, f2...)
+        if xgb_feature_name.startswith('f') and xgb_feature_name[1:].isdigit():
+            feature_idx = int(xgb_feature_name[1:])
+            if feature_idx < len(feature_names):
+                actual_feature_name = feature_names[feature_idx]
+                importance_scores[actual_feature_name] = score
+            else:
+                # Feature index out of range - keep original name
+                importance_scores[xgb_feature_name] = score
+        else:
+            # Already using actual names
+            importance_scores[xgb_feature_name] = score
     
     # Group features by category
     importance_by_group = {
@@ -540,13 +897,33 @@ def analyze_feature_importance(model: xgb.Booster, feature_names: List[str]) -> 
         'service_options': []
     }
     
-    # Categorize features
+    # Categorize features (including interaction features)
     for feature, score in importance_scores.items():
-        if any(keyword in feature for keyword in ['distance', 'neighborhood', 'direction']):
+        # Check if it's an interaction feature first
+        if '_x_' in feature or '_squared' in feature or '_ratio' in feature or '_proximity' in feature or '_match_score' in feature:
+            # Categorize interaction features based on their components
+            if 'distance' in feature and 'rating' in feature:
+                importance_by_group['quality'].append((feature, score))  # Distance × Rating
+            elif 'distance' in feature and 'time' in feature:
+                importance_by_group['spatial'].append((feature, score))  # Time × Distance
+            elif 'price' in feature and 'rating' in feature:
+                importance_by_group['price'].append((feature, score))  # Price × Rating
+            elif 'user' in feature:
+                importance_by_group['user_behavior'].append((feature, score))  # User interactions
+            elif 'sentiment' in feature:
+                importance_by_group['review_sentiment'].append((feature, score))  # Sentiment interactions
+            elif 'service' in feature:
+                importance_by_group['service_options'].append((feature, score))  # Service interactions
+            elif 'relative_results' in feature:
+                importance_by_group['relationship'].append((feature, score))  # Relationship interactions
+            else:
+                importance_by_group['spatial'].append((feature, score))  # Default for other interactions
+        # Regular features
+        elif any(keyword in feature for keyword in ['distance', 'neighborhood', 'direction']):
             importance_by_group['spatial'].append((feature, score))
         elif any(keyword in feature for keyword in ['hour', 'day_of_week', 'weekend', 'delta', 'meal']):
             importance_by_group['temporal'].append((feature, score))
-        elif any(keyword in feature for keyword in ['rating', 'highly_rated', 'sentiment']):
+        elif any(keyword in feature for keyword in ['rating', 'highly_rated']):
             importance_by_group['quality'].append((feature, score))
         elif any(keyword in feature for keyword in ['price', 'upgrade', 'downgrade']):
             importance_by_group['price'].append((feature, score))
