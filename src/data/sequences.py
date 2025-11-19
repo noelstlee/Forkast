@@ -5,6 +5,7 @@ Creates user visit sequences and consecutive visit pairs from reviews and metada
 
 import polars as pl
 from pathlib import Path
+from typing import Optional
 
 
 # Time window for consecutive visits (in hours)
@@ -198,12 +199,38 @@ def print_sequence_statistics(sequences_df, pairs_df):
     print("\n" + "=" * 80)
 
 
-def main():
-    """Main sequence derivation pipeline."""
-    # Paths
+def main(processed_dir: Optional[Path] = None):
+    """
+    Main sequence derivation pipeline.
+    
+    Args:
+        processed_dir: Optional path to processed data directory.
+                      If None, will check both SSD and local locations.
+    """
+    # Paths - check both SSD and local locations
     base_dir = Path(__file__).parent.parent.parent
-    input_dir = base_dir / "data" / "processed" / "ga"
-    output_dir = base_dir / "data" / "processed" / "ga"
+    
+    if processed_dir is None:
+        # Try SSD first, then fall back to local
+        ssd_path = Path("/Volumes/SunnySSD") / "Forkast_processed" / "ga"
+        local_path = base_dir / "data" / "processed" / "ga"
+        
+        if ssd_path.exists() and (ssd_path / "reviews_ga.parquet").exists():
+            processed_dir = ssd_path
+            print(f"  Using SSD location: {processed_dir}")
+        elif local_path.exists() and (local_path / "reviews_ga.parquet").exists():
+            processed_dir = local_path
+            print(f"  Using local location: {processed_dir}")
+        else:
+            # Default to local if neither exists (will create files there)
+            processed_dir = local_path
+            print(f"  Defaulting to local location: {processed_dir}")
+            print(f"  ⚠️  reviews_ga.parquet not found - ensure Phase A1 is completed first")
+    else:
+        processed_dir = Path(processed_dir)
+    
+    input_dir = processed_dir
+    output_dir = processed_dir
     
     reviews_input = input_dir / "reviews_ga.parquet"
     biz_input = input_dir / "biz_ga.parquet"
@@ -211,12 +238,34 @@ def main():
     sequences_output = output_dir / "user_sequences_ga.parquet"
     pairs_output = output_dir / "pairs_ga.parquet"
     
+    # Check if input files exist
+    if not reviews_input.exists():
+        raise FileNotFoundError(
+            f"Reviews file not found: {reviews_input}\n"
+            f"Please run Phase A1 (data ingestion) first to generate this file."
+        )
+    
+    if not biz_input.exists():
+        raise FileNotFoundError(
+            f"Business file not found: {biz_input}\n"
+            f"Please run Phase A1 (data ingestion) first to generate this file."
+        )
+    
     # Load data
     print("Loading data...")
-    reviews_df = pl.read_parquet(reviews_input)
-    biz_df = pl.read_parquet(biz_input)
-    print(f"  Loaded {len(reviews_df):,} reviews")
-    print(f"  Loaded {len(biz_df):,} businesses")
+    try:
+        reviews_df = pl.read_parquet(reviews_input)
+        biz_df = pl.read_parquet(biz_input)
+        print(f"  Loaded {len(reviews_df):,} reviews")
+        print(f"  Loaded {len(biz_df):,} businesses")
+    except Exception as e:
+        raise RuntimeError(
+            f"Error reading parquet files:\n"
+            f"  reviews: {reviews_input}\n"
+            f"  businesses: {biz_input}\n"
+            f"  Error: {e}\n"
+            f"\nThe files may be corrupted or incomplete. Try re-running Phase A1."
+        ) from e
     
     # Derive sequences
     sequences_df = derive_user_sequences(reviews_df, biz_df, str(sequences_output))

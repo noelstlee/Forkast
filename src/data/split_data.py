@@ -2,11 +2,22 @@
 Phase A4: Temporal Data Splitting
 Splits datasets chronologically into train/validation/test sets.
 Organizes data into xgboost_data/ and lstm_data/ directories.
+
+NEW: Geographic splitting for Atlanta vs rest of Georgia
 """
 
 import polars as pl
 from pathlib import Path
+from typing import Optional
 import shutil
+
+# Atlanta metropolitan area bounds
+ATLANTA_BOUNDS = {
+    'lat_min': 33.6,   # Southern boundary
+    'lat_max': 34.0,   # Northern boundary
+    'lon_min': -84.6,  # Western boundary
+    'lon_max': -84.2   # Eastern boundary
+}
 
 
 def create_directories(base_dir: Path):
@@ -18,6 +29,106 @@ def create_directories(base_dir: Path):
     lstm_dir.mkdir(exist_ok=True)
     
     return xgb_dir, lstm_dir
+
+
+def identify_atlanta_businesses(biz_df: pl.DataFrame) -> set:
+    """
+    Identify businesses in Atlanta metropolitan area.
+    
+    Args:
+        biz_df: Business DataFrame with lat/lon columns
+        
+    Returns:
+        Set of business IDs in Atlanta
+    """
+    atlanta_biz = biz_df.filter(
+        (pl.col('lat') >= ATLANTA_BOUNDS['lat_min']) &
+        (pl.col('lat') <= ATLANTA_BOUNDS['lat_max']) &
+        (pl.col('lon') >= ATLANTA_BOUNDS['lon_min']) &
+        (pl.col('lon') <= ATLANTA_BOUNDS['lon_max'])
+    )
+    
+    return set(atlanta_biz['gmap_id'].to_list())
+
+
+def geographic_split_xgboost(features_df: pl.DataFrame, biz_df: pl.DataFrame,
+                            train_ratio: float = 0.70, val_ratio: float = 0.15) -> tuple:
+    """
+    Split XGBoost features geographically: train on non-Atlanta, test on Atlanta.
+    
+    This prevents data leakage and creates a realistic evaluation scenario where
+    we train on restaurants outside Atlanta and test on Atlanta restaurants.
+    
+    Args:
+        features_df: Features DataFrame with src_ts
+        biz_df: Business DataFrame with location info
+        train_ratio: Proportion for training (default 0.70)
+        val_ratio: Proportion for validation (default 0.15)
+        
+    Returns:
+        Tuple of (train_df, val_df, test_df)
+    """
+    print("\n" + "=" * 80)
+    print("GEOGRAPHIC SPLIT: NON-ATLANTA TRAIN → ATLANTA TEST")
+    print("=" * 80)
+    
+    # Identify Atlanta businesses
+    print("\n[1/5] Identifying Atlanta businesses...")
+    atlanta_business_ids = identify_atlanta_businesses(biz_df)
+    print(f"  Atlanta businesses: {len(atlanta_business_ids):,}")
+    print(f"  Total businesses: {len(biz_df):,}")
+    print(f"  Atlanta percentage: {len(atlanta_business_ids)/len(biz_df)*100:.1f}%")
+    
+    # Split data geographically
+    print("\n[2/5] Splitting data geographically...")
+    
+    # Test set: Both source and destination in Atlanta
+    test_df = features_df.filter(
+        pl.col('src_gmap_id').is_in(list(atlanta_business_ids)) &
+        pl.col('dst_gmap_id').is_in(list(atlanta_business_ids))
+    )
+    
+    # Train/Val set: At least one restaurant outside Atlanta
+    non_atlanta_df = features_df.filter(
+        ~(pl.col('src_gmap_id').is_in(list(atlanta_business_ids)) &
+          pl.col('dst_gmap_id').is_in(list(atlanta_business_ids)))
+    )
+    
+    print(f"  Non-Atlanta samples (train/val): {len(non_atlanta_df):,}")
+    print(f"  Atlanta samples (test): {len(test_df):,}")
+    
+    # Temporal split of non-Atlanta data for train/val
+    print("\n[3/5] Temporal split of non-Atlanta data...")
+    non_atlanta_df = non_atlanta_df.sort("src_ts")
+    
+    train_size = int(len(non_atlanta_df) * train_ratio / (train_ratio + val_ratio))
+    
+    train_df = non_atlanta_df[:train_size]
+    val_df = non_atlanta_df[train_size:]
+    
+    print(f"  Train samples: {len(train_df):,}")
+    print(f"  Val samples: {len(val_df):,}")
+    print(f"  Test samples: {len(test_df):,}")
+    
+    # Print temporal ranges
+    print(f"\n[4/5] Temporal ranges:")
+    if len(train_df) > 0:
+        print(f"  Train: {train_df['src_ts'].min()} to {train_df['src_ts'].max()}")
+    if len(val_df) > 0:
+        print(f"  Val:   {val_df['src_ts'].min()} to {val_df['src_ts'].max()}")
+    if len(test_df) > 0:
+        print(f"  Test:  {test_df['src_ts'].min()} to {test_df['src_ts'].max()}")
+    
+    # Check label distribution
+    print(f"\n[5/5] Label distribution:")
+    if len(train_df) > 0:
+        print(f"  Train - Pos: {(train_df['label'] == 1).sum():,}, Neg: {(train_df['label'] == 0).sum():,}")
+    if len(val_df) > 0:
+        print(f"  Val   - Pos: {(val_df['label'] == 1).sum():,}, Neg: {(val_df['label'] == 0).sum():,}")
+    if len(test_df) > 0:
+        print(f"  Test  - Pos: {(test_df['label'] == 1).sum():,}, Neg: {(test_df['label'] == 0).sum():,}")
+    
+    return train_df, val_df, test_df
 
 
 def temporal_split_xgboost(features_df: pl.DataFrame, 
@@ -195,26 +306,28 @@ def save_lstm_splits(train_df: pl.DataFrame, val_df: pl.DataFrame,
     print(f"\n✓ LSTM splits saved to {output_dir}")
 
 
-def copy_business_data(source_path: Path, xgb_dir: Path, lstm_dir: Path):
-    """Copy business metadata to both directories."""
+def copy_business_data(source_path: Path, xgb_dir: Path, lstm_dir: Path = None):
+    """Copy business metadata to directories."""
     print("\n" + "=" * 80)
     print("COPYING BUSINESS METADATA")
     print("=" * 80)
     
     xgb_biz_path = xgb_dir / "biz_ga.parquet"
-    lstm_biz_path = lstm_dir / "biz_ga.parquet"
     
-    print(f"\n[1/2] Copying to xgboost_data/...")
+    print(f"\n[1/{2 if lstm_dir else 1}] Copying to xgboost_data/...")
     shutil.copy2(source_path, xgb_biz_path)
     print(f"  {xgb_biz_path}")
     print(f"  Size: {xgb_biz_path.stat().st_size / 1024 / 1024:.1f} MB")
     
-    print(f"\n[2/2] Copying to lstm_data/...")
-    shutil.copy2(source_path, lstm_biz_path)
-    print(f"  {lstm_biz_path}")
-    print(f"  Size: {lstm_biz_path.stat().st_size / 1024 / 1024:.1f} MB")
-    
-    print(f"\n✓ Business metadata copied to both directories")
+    if lstm_dir is not None:
+        lstm_biz_path = lstm_dir / "biz_ga.parquet"
+        print(f"\n[2/2] Copying to lstm_data/...")
+        shutil.copy2(source_path, lstm_biz_path)
+        print(f"  {lstm_biz_path}")
+        print(f"  Size: {lstm_biz_path.stat().st_size / 1024 / 1024:.1f} MB")
+        print(f"\n✓ Business metadata copied to both directories")
+    else:
+        print(f"\n✓ Business metadata copied to xgboost_data/")
 
 
 def print_final_summary(xgb_dir: Path, lstm_dir: Path):
@@ -303,20 +416,171 @@ def main():
     print("\n✓✓✓ PHASE A4 COMPLETE ✓✓✓\n")
 
 
-def split_xgboost_only():
-    """Split only XGBoost data (for consolidated pipeline)."""
-    print("\n[Loading data...]")
-    xgboost_df = pl.read_parquet(PROCESSED_DIR / "features_ga.parquet")
-    biz_df = pl.read_parquet(PROCESSED_DIR / "biz_ga.parquet")
+def split_xgboost_geographic(processed_dir: Optional[Path] = None):
+    """
+    Split XGBoost data geographically: train on non-Atlanta, test on Atlanta.
     
-    print(f"  XGBoost: {len(xgboost_df):,} samples")
+    Args:
+        processed_dir: Optional path to processed data directory.
+                      If None, will check both SSD and local locations.
+    """
+    # Paths - check both SSD and local locations
+    base_dir = Path(__file__).parent.parent.parent
+    
+    if processed_dir is None:
+        # Try SSD first, then fall back to local
+        ssd_path = Path("/Volumes/SunnySSD") / "Forkast_processed" / "ga"
+        local_path = base_dir / "data" / "processed" / "ga"
+        
+        if ssd_path.exists() and (ssd_path / "features_ga.parquet").exists():
+            processed_dir = ssd_path
+            print(f"  Using SSD location: {processed_dir}")
+        elif local_path.exists() and (local_path / "features_ga.parquet").exists():
+            processed_dir = local_path
+            print(f"  Using local location: {processed_dir}")
+        else:
+            # Default to local if neither exists
+            processed_dir = local_path
+            print(f"  Defaulting to local location: {processed_dir}")
+            print(f"  ⚠️  features_ga.parquet not found - ensure Phase A3 (feature engineering) is completed first")
+    else:
+        processed_dir = Path(processed_dir)
+    
+    features_input = processed_dir / "features_ga.parquet"
+    biz_input = processed_dir / "biz_ga.parquet"
+    
+    print("=" * 80)
+    print("PHASE A4: GEOGRAPHIC DATA SPLITTING (NON-ATLANTA → ATLANTA)")
+    print("=" * 80)
+    print(f"\nInputs:")
+    print(f"  - {features_input}")
+    print(f"  - {biz_input}")
+    
+    # Check if input files exist
+    if not features_input.exists():
+        raise FileNotFoundError(
+            f"Features file not found: {features_input}\n"
+            f"Please run Phase A3 (feature engineering) first to generate this file."
+        )
+    
+    if not biz_input.exists():
+        raise FileNotFoundError(
+            f"Business file not found: {biz_input}\n"
+            f"Please run Phase A1 (data ingestion) first to generate this file."
+        )
+    
+    # Create directories
+    print(f"\nCreating output directories...")
+    xgb_dir, _ = create_directories(processed_dir)
+    print(f"  ✓ {xgb_dir}")
+    
+    # Load data
+    print(f"\n[Loading data...]")
+    try:
+        features_df = pl.read_parquet(features_input)
+        biz_df = pl.read_parquet(biz_input)
+    except Exception as e:
+        raise RuntimeError(
+            f"Error reading parquet files:\n"
+            f"  features: {features_input}\n"
+            f"  businesses: {biz_input}\n"
+            f"  Error: {e}\n"
+            f"\nThe files may be corrupted or incomplete. Try re-running previous phases."
+        ) from e
+    print(f"  XGBoost features: {len(features_df):,}")
+    print(f"  Businesses: {len(biz_df):,}")
+    
+    # Geographic split
+    xgb_train, xgb_val, xgb_test = geographic_split_xgboost(
+        features_df, 
+        biz_df,
+        train_ratio=0.70, 
+        val_ratio=0.15
+    )
+    
+    # Save splits
+    save_xgboost_splits(xgb_train, xgb_val, xgb_test, xgb_dir)
+    
+    # Copy business metadata
+    copy_business_data(biz_input, xgb_dir, None)
+    
+    print("\n✓✓✓ GEOGRAPHIC SPLIT COMPLETE ✓✓✓")
+    print(f"\nSummary:")
+    print(f"  Train (non-Atlanta): {len(xgb_train):,} samples")
+    print(f"  Val (non-Atlanta): {len(xgb_val):,} samples") 
+    print(f"  Test (Atlanta): {len(xgb_test):,} samples")
+    
+    return xgb_train, xgb_val, xgb_test
+
+
+def split_xgboost_only(processed_dir: Optional[Path] = None):
+    """
+    Split only XGBoost data (for consolidated pipeline).
+    
+    Args:
+        processed_dir: Optional path to processed data directory.
+                      If None, will check both SSD and local locations.
+    """
+    # Paths - check both SSD and local locations
+    base_dir = Path(__file__).parent.parent.parent
+    
+    if processed_dir is None:
+        # Try SSD first, then fall back to local
+        ssd_path = Path("/Volumes/SunnySSD") / "Forkast_processed" / "ga"
+        local_path = base_dir / "data" / "processed" / "ga"
+        
+        if ssd_path.exists() and (ssd_path / "features_ga.parquet").exists():
+            processed_dir = ssd_path
+            print(f"  Using SSD location: {processed_dir}")
+        elif local_path.exists() and (local_path / "features_ga.parquet").exists():
+            processed_dir = local_path
+            print(f"  Using local location: {processed_dir}")
+        else:
+            # Default to local if neither exists
+            processed_dir = local_path
+            print(f"  Defaulting to local location: {processed_dir}")
+            print(f"  ⚠️  features_ga.parquet not found - ensure Phase A3 (feature engineering) is completed first")
+    else:
+        processed_dir = Path(processed_dir)
+    
+    XGBOOST_DIR = processed_dir / "xgboost_data"
+    
+    features_input = processed_dir / "features_ga.parquet"
+    biz_input = processed_dir / "biz_ga.parquet"
+    
+    # Check if input files exist
+    if not features_input.exists():
+        raise FileNotFoundError(
+            f"Features file not found: {features_input}\n"
+            f"Please run Phase A3 (feature engineering) first to generate this file."
+        )
+    
+    if not biz_input.exists():
+        raise FileNotFoundError(
+            f"Business file not found: {biz_input}\n"
+            f"Please run Phase A1 (data ingestion) first to generate this file."
+        )
+    
+    print("\n[Loading data...]")
+    try:
+        xgboost_df = pl.read_parquet(features_input)
+        biz_df = pl.read_parquet(biz_input)
+        print(f"  XGBoost: {len(xgboost_df):,} samples")
+    except Exception as e:
+        raise RuntimeError(
+            f"Error reading parquet files:\n"
+            f"  features: {features_input}\n"
+            f"  businesses: {biz_input}\n"
+            f"  Error: {e}\n"
+            f"\nThe files may be corrupted or incomplete. Try re-running previous phases."
+        ) from e
     
     # Create directories
     XGBOOST_DIR.mkdir(parents=True, exist_ok=True)
     
     # Split XGBoost data
     print("\n[Splitting XGBoost data...]")
-    xgboost_train, xgboost_val, xgboost_test = split_xgboost_data(xgboost_df)
+    xgboost_train, xgboost_val, xgboost_test = temporal_split_xgboost(xgboost_df, train_ratio=0.70, val_ratio=0.15)
     
     # Save XGBoost splits
     print("\n[Saving XGBoost splits...]")

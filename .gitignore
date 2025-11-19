@@ -39,6 +39,7 @@ team15proposal.pdf
 .DS_Store
 Thumbs.db
 docs/
+data/
 
 DATA_REBALANCING_SUMMARY.md
 LSTM_PREDICTIONS_EXPLAINED.md
@@ -61,3 +62,42 @@ outputs/
 data/processed/predictions_cache/
 
 image/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+*.pyc
+dva_env/
+venv/
+env/
+ENV/
+.venv
+.ipynb_checkpoints
+*/.ipynb_checkpoints/*
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Don't ignore parquet files - Git LFS will handle them
+# data/processed/ga/*.parquet
+# data/processed/ga/**/*.parquet
+
+# But still ignore raw data (too large even for LFS)
+data/raw/*.json.gz
+
+# Cache artifacts
+data/processed/ga/cache/
+
+team15proposal.pdf
+*.log
+.DS_Store
+Thumbs.db
+docs/

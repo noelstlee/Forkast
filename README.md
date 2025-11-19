@@ -33,21 +33,22 @@ Forkast/
 
 | File | Where to place | Source |
 | --- | --- | --- |
-| `outputs/atlanta_business_predictions_with_meta.csv`, '`outputs/meta-Georgia.json` | `outputs/` | Download the latest build from [Drive](https://drive.google.com/file/d/1vCr1mpk47gX_fkZzSEno70bhkP7kSDi3/view?usp=sharing). Also, place the raw data 'meta-Georgia.json' downloaded earlier in outputs/ dir|
+| `outputs/atlanta_business_predictions_with_meta.csv` | `outputs/` | Download the latest build from [Drive](https://drive.google.com/file/d/1vCr1mpk47gX_fkZzSEno70bhkP7kSDi3/view?usp=sharing). |
+| `outputs/atlanta_xgboost_predictions_with_meta.csv` | `outputs/` | Download the latest build from [Drive](https://drive.google.com/file/d/1yh2ZPqjEW61AJN3mF1wwVCOv5F-hvRdY/view?usp=sharing). |
 | `outputs/meta-Georgia.json` | `outputs/` (API reads it directly) | Same [Google Local dataset link](https://mcauleylab.ucsd.edu/public_datasets/gdrive/googlelocal/#complete-data) as the raw files. |
 
 ### Run locally
 
 ```bash
 # 1. API (FastAPI + DuckDB). First boot may take a few minutes:
-uvicorn services.predictions_api:app --host 0.0.0.0 --port 9000 --reload
+uvicorn services.predictions_api_simple:app --host 0.0.0.0 --port 9000 --reload
 
 # 2. Open another terminal. Static assets (Leaflet/D3 front-end):
 cd visualization
 python3 -m http.server 8000
 
 # 3. Visit the dashboard
-open http://localhost:8000/dashboard.html
+open http://localhost:8000/dashboard_simple.html
 ```
 
 **Heads up:** the first API start loads the 2 GB CSV and builds metadata caches, so expect a delay before the health check turns green. Subsequent restarts reuse the warmed DuckDB table.

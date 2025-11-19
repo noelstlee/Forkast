@@ -9,6 +9,7 @@ Improves data quality by:
 
 import polars as pl
 from pathlib import Path
+from typing import Optional
 import re
 
 
@@ -311,11 +312,34 @@ def print_final_statistics(biz_df: pl.DataFrame, sequences_df: pl.DataFrame, pai
     print("\n" + "=" * 80)
 
 
-def main():
-    """Main Phase A2.5 pipeline."""
-    # Paths
+def main(processed_dir: Optional[Path] = None):
+    """
+    Main Phase A2.5 pipeline.
+    
+    Args:
+        processed_dir: Optional path to processed data directory.
+                      If None, will check both SSD and local locations.
+    """
+    # Paths - check both SSD and local locations
     base_dir = Path(__file__).parent.parent.parent
-    processed_dir = base_dir / "data" / "processed" / "ga"
+    
+    if processed_dir is None:
+        # Try SSD first, then fall back to local
+        ssd_path = Path("/Volumes/SunnySSD") / "Forkast_processed" / "ga"
+        local_path = base_dir / "data" / "processed" / "ga"
+        
+        if ssd_path.exists() and (ssd_path / "user_sequences_ga.parquet").exists():
+            processed_dir = ssd_path
+            print(f"  Using SSD location: {processed_dir}")
+        elif local_path.exists() and (local_path / "user_sequences_ga.parquet").exists():
+            processed_dir = local_path
+            print(f"  Using local location: {processed_dir}")
+        else:
+            # Default to local if neither exists
+            processed_dir = local_path
+            print(f"  Defaulting to local location: {processed_dir}")
+    else:
+        processed_dir = Path(processed_dir)
     
     biz_input = processed_dir / "biz_ga.parquet"
     sequences_input = processed_dir / "user_sequences_ga.parquet"
@@ -337,11 +361,37 @@ def main():
     print(f"  - {sequences_output}")
     print(f"  - {pairs_output}")
     
+    # Check if input files exist
+    missing_files = []
+    if not biz_input.exists():
+        missing_files.append(str(biz_input))
+    if not sequences_input.exists():
+        missing_files.append(str(sequences_input))
+    if not pairs_input.exists():
+        missing_files.append(str(pairs_input))
+    
+    if missing_files:
+        raise FileNotFoundError(
+            f"Required input files not found:\n" + 
+            "\n".join(f"  - {f}" for f in missing_files) +
+            f"\n\nPlease run Phase A2 (sequence derivation) first to generate these files."
+        )
+    
     # Load data
     print("\n[Loading data...]")
-    biz_df = pl.read_parquet(biz_input)
-    sequences_df = pl.read_parquet(sequences_input)
-    pairs_df = pl.read_parquet(pairs_input)
+    try:
+        biz_df = pl.read_parquet(biz_input)
+        sequences_df = pl.read_parquet(sequences_input)
+        pairs_df = pl.read_parquet(pairs_input)
+    except Exception as e:
+        raise RuntimeError(
+            f"Error reading parquet files:\n"
+            f"  businesses: {biz_input}\n"
+            f"  sequences: {sequences_input}\n"
+            f"  pairs: {pairs_input}\n"
+            f"  Error: {e}\n"
+            f"\nThe files may be corrupted or incomplete. Try re-running previous phases."
+        ) from e
     
     # Step 1: Re-categorize restaurants
     biz_df = recategorize_restaurants(biz_df)
