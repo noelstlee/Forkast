@@ -1,28 +1,3 @@
-#!/usr/bin/env python3
-"""
-XGBoost Preprocessing Pipeline - End-to-End
-
-This script runs the complete preprocessing pipeline for XGBoost training:
-    Phase A1: Data Ingestion & Normalization
-    Phase A2: User Sequence Derivation (pairs only)
-    Phase A2.5: Data Quality Filtering
-    Phase A3: Feature Engineering
-    Phase A4: Temporal Data Splitting
-
-Input:
-    - data/raw/meta-Georgia.json
-    - data/raw/review-Georgia.json
-
-Output:
-    - data/processed/ga/xgboost_data/train.parquet
-    - data/processed/ga/xgboost_data/val.parquet
-    - data/processed/ga/xgboost_data/test.parquet
-    - data/processed/ga/xgboost_data/biz_ga.parquet
-
-Author: Team 15
-Date: October 2025
-"""
-
 import sys
 from pathlib import Path
 

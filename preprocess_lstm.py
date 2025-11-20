@@ -1,33 +1,3 @@
-#!/usr/bin/env python3
-"""
-LSTM Preprocessing Pipeline - End-to-End
-
-This script runs the complete preprocessing pipeline for LSTM training:
-    Phase A1: Data Ingestion & Normalization
-    Phase A2: User Sequence Derivation (sequences only)
-    Phase A2.5: Data Quality Filtering (sequences only)
-    Phase A4: Temporal Data Splitting (LSTM only)
-    Phase A5: LSTM-Specific Preprocessing
-
-Input:
-    - data/raw/meta-Georgia.json
-    - data/raw/review-Georgia.json
-
-Output:
-    - data/processed/ga/lstm_data/category_train.parquet
-    - data/processed/ga/lstm_data/category_val.parquet
-    - data/processed/ga/lstm_data/category_test.parquet
-    - data/processed/ga/lstm_data/business_train.parquet
-    - data/processed/ga/lstm_data/business_val.parquet
-    - data/processed/ga/lstm_data/business_test.parquet
-    - data/processed/ga/lstm_data/category_vocab.json
-    - data/processed/ga/lstm_data/business_vocab.json
-    - data/processed/ga/lstm_data/biz_ga.parquet
-
-Author: Team 15
-Date: October 2025
-"""
-
 import sys
 from pathlib import Path
 
