@@ -172,7 +172,7 @@ If you don't want to run the full pipeline, download pre-computed predictions:
 
 ```bash
 # 1. API (FastAPI + DuckDB). First boot may take a few minutes:
-uvicorn services.predictions_api_simple:app --host 0.0.0.0 --port 9000 --reload
+uvicorn services.predictions_api_simple:app --host 127.0.0.1 --port 9000
 
 # 2. Open another terminal. Static assets (Leaflet/D3 front-end):
 cd visualization
