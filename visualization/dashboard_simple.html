@@ -9,7 +9,7 @@
 <script src="https://unpkg.com/leaflet@1.3.4/dist/leaflet.js" integrity="sha512-nMMmRyTVoLYqjP9hrbed9S+FzjZHW5gY1TWCHA5ckwXZBadntCNs8kEqAWdrb9O7rxbCaA4lKTIWjDXZxflOcA==" crossorigin=""></script>
 
 <body>
-<div id="logo"><span class="logo-text">Forkast</span></div>
+<div id="logo"><img src="forkast_logo.png"></img></div>
 <div id="model-selector">
     <button id="btn-lstm" class="active">Non-Atlanta(LSTM)</button>
     <button id="btn-xgboost">Atlanta(XGBoost)</button>
@@ -53,20 +53,19 @@
     
     #logo {
         position: absolute;
-        top: 12px;       
+        top: 24px;       
         left: 50%;        
         transform: translateX(-50%);
         z-index: 1010; 
         pointer-events: none;
     }
 
-    #logo .logo-text {
-        font-size: 26px;
-        font-weight: 800;
-        letter-spacing: 2px;
-        color: #f97316;
-        text-transform: uppercase;
-        text-shadow: 0 4px 12px rgba(15, 23, 42, 0.35);
+    #logo img {
+        height: 60px;
+        vertical-align: middle;
+        margin-right: 8px;
+        box-shadow: 0 12px 24px rgba(15, 23, 42, 0.15);
+        border-radius: 8px;
     }
 
     #model-selector {
